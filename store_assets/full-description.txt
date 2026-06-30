@@ -1,0 +1,61 @@
+Savings Tracker helps you plan savings goals, compare saving strategies, track debts manually, and explore debt payoff methods — all on your device, with no login or bank connection required.
+
+SAVINGS GOALS
+• Create and track multiple savings goals (vacation, emergency fund, new car, etc.)
+• Choose from 10 educational saving strategies
+• Log contributions and see how your balance grows over time
+• View estimated completion dates based on your entries
+• Try the 52-Week Savings Challenge or the Reverse 52-Week Challenge
+• Archive or mark goals complete when you reach them
+
+SAVINGS STRATEGIES (EDUCATIONAL PLANNING METHODS)
+• Fixed Weekly Saving
+• Fixed Monthly Saving
+• Pay Yourself First Planner
+• Emergency Fund Builder
+• Sinking Fund Planner
+• 52-Week Savings Challenge
+• Reverse 52-Week Savings Challenge
+• Envelope-Style Goal Buckets
+• No-Spend Day Savings Tracker
+• Custom Savings Plan
+
+DEBT TRACKER
+• Add any type of debt: credit cards, student loans, auto loans, mortgages, personal loans, medical bills
+• Track current balance, original balance, APR, and minimum payment manually
+• Log payments and see your balance decrease over time
+• View estimated payoff dates based on your entries
+
+DEBT PAYOFF STRATEGIES (EDUCATIONAL COMPARISON)
+• Debt Avalanche – highest APR first (estimated lowest total interest)
+• Debt Snowball – smallest balance first (estimated quick wins)
+• Hybrid – one quick win first, then by APR
+• Equal Extra Payment – split extra payments across all debts
+• Custom Order – choose your own payoff sequence
+
+INSIGHTS & DASHBOARD
+• See total saved vs. total goal targets at a glance
+• Track total debt and how much you've paid off
+• View recent activity feed
+• Get weekly and monthly savings summaries
+• Compare estimated debt payoff timelines
+
+DATA EXPORT
+• Export all data as JSON backup
+• Export savings goals as CSV
+• Export debt accounts as CSV
+• Export a human-readable text summary
+• All exports work offline
+
+PRIVACY & SECURITY
+• All data stays on your device — no server, no cloud
+• No account or login required
+• No bank connections or financial account linking
+• Advertising by Google AdMob (see Privacy Policy)
+
+IMPORTANT DISCLAIMER
+Savings Tracker is an educational planning and tracking tool, not financial advice. All calculations are estimates based on data you enter manually. Results are labeled "estimated" throughout the app. Always consult a qualified financial professional before making financial decisions.
+
+This app does not connect to banks, move money, pull credit scores, or claim guaranteed financial results.
+
+Free to use, supported by ads.

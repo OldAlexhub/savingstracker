@@ -1,0 +1,27 @@
+Screenshot 1 (Dashboard):
+Caption: "See your total savings and debt progress at a glance"
+
+Screenshot 2 (Savings Goals List):
+Caption: "Create and track multiple savings goals with progress bars"
+
+Screenshot 3 (Add Savings Goal):
+Caption: "Set a target, choose a strategy, and start saving"
+
+Screenshot 4 (Goal Detail / 52-Week Challenge):
+Caption: "Visualize your savings journey with contribution history"
+
+Screenshot 5 (Debt Tracker):
+Caption: "Track all your debts and payments in one place"
+
+Screenshot 6 (Debt Strategy Comparison):
+Caption: "Compare Avalanche, Snowball, and other payoff methods"
+
+Screenshot 7 (Insights):
+Caption: "Get weekly and monthly savings summaries and estimates"
+
+Screenshot 8 (Settings / Export):
+Caption: "Export your data as CSV or JSON — no internet needed"
+
+Feature Graphic Text:
+"Savings Tracker — Plan. Track. Progress."
+Subtitle: "Goals & Debt • Local Storage • No Login"

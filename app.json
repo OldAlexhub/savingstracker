@@ -1,4 +1,7 @@
 {
   "name": "savingstracker",
-  "displayName": "savingstracker"
+  "displayName": "Savings Tracker",
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-7831002909037560~5086040793"
+  }
 }

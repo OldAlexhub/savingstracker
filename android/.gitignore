@@ -1,0 +1,6 @@
+
+# Release signing - DO NOT COMMIT
+local.properties
+keystore.properties
+*.keystore
+*.jks

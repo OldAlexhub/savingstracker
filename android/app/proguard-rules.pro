@@ -8,3 +8,17 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# AdMob / Google Mobile Ads
+-keep class com.google.android.gms.** { *; }
+-keep class com.google.ads.** { *; }
+-dontwarn com.google.android.gms.**
+
+# React Native
+-keep class com.facebook.react.** { *; }
+-keep @interface com.facebook.proguard.annotations.DoNotStrip
+-keep @interface com.facebook.proguard.annotations.KeepGettersAndSetters
+
+# React Native Fetch Blob / RNFS
+-keep class com.RNFetchBlob.** { *; }
+-keep class com.rnfs.** { *; }

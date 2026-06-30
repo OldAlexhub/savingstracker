@@ -1,0 +1,26 @@
+PRIVACY SUMMARY — Savings Tracker by Old Alex Hub
+
+YOUR FINANCIAL DATA:
+- Stored on your device only (local AsyncStorage)
+- Never sent to any server or cloud
+- No account or login required
+- Delete anytime: Settings > Clear All Data, or uninstall the app
+
+ADVERTISING (Google AdMob):
+- This is a FREE app supported by ads
+- Google AdMob may collect: device identifiers, ad interaction events, approximate location from IP
+- We do not receive or store your personal data
+- To limit ad tracking: Device Settings > Privacy > Ads > Delete Advertising ID
+
+NO:
+- No bank connections
+- No credit pulls
+- No money movement
+- No personal data collection by us
+
+DISCLAIMER:
+This app is an educational planning tool, not financial advice. All results are estimates based on your manual entries. Consult a financial professional for advice.
+
+Developer: Old Alex Hub
+Contact: [INSERT EMAIL]
+Full policy: Available in app and on Play Store listing
