@@ -1,556 +1,305 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, {useMemo, useState} from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  RefreshControl,
-  ActivityIndicator,
   Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {useNavigation} from '@react-navigation/native';
+import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import { useApp } from '../context/AppContext';
-import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../theme';
-import { calculateSavingsProgress } from '../utils/calculations';
-import { formatCurrency, formatPercent, formatDate, formatRelativeDate } from '../utils/formatters';
-
-import Card from '../components/common/Card';
-import Button from '../components/common/Button';
-import ProgressBar from '../components/common/ProgressBar';
-import EmptyState from '../components/common/EmptyState';
-import ConfirmDialog from '../components/common/ConfirmDialog';
-import SectionHeader from '../components/common/SectionHeader';
-import Badge from '../components/common/Badge';
 import BannerAdComponent from '../components/ads/BannerAdComponent';
+import ConfirmDialog from '../components/common/ConfirmDialog';
+import ProgressBar from '../components/common/ProgressBar';
 import SafeScrollView from '../components/layout/SafeScrollView';
-import StickyActionBar from '../components/layout/StickyActionBar';
+import {useApp} from '../context/AppContext';
+import {BorderRadius, Colors, Shadows, Spacing, Typography} from '../theme';
+import type {GoalStatus, RootStackParamList} from '../types';
+import {formatCurrency, formatDate} from '../utils/formatters';
 
-type RootStackParamList = {
-  MainTabs: undefined;
-  AddSavingsGoal: undefined;
-  EditSavingsGoal: { goalId: string };
-  SavingsGoalDetail: { goalId: string };
-  SavingsStrategy: undefined;
-  AddDebt: undefined;
-  EditDebt: { debtId: string };
-  DebtDetail: { debtId: string };
-  DebtStrategy: undefined;
-  LogContribution: { goalId?: string };
-  LogDebtPayment: { debtId?: string };
-};
-
-type NavProp = NativeStackNavigationProp<RootStackParamList>;
-
-type FilterType = 'all' | 'active' | 'completed' | 'archived';
-
-const FILTERS: { key: FilterType; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'active', label: 'Active' },
-  { key: 'completed', label: 'Completed' },
-  { key: 'archived', label: 'Archived' },
+type Navigation = NativeStackNavigationProp<RootStackParamList>;
+type Filter = 'all' | GoalStatus;
+const FILTERS: Array<{key: Filter; label: string}> = [
+  {key: 'active', label: 'Active'},
+  {key: 'completed', label: 'Completed'},
+  {key: 'archived', label: 'Archived'},
+  {key: 'all', label: 'All'},
 ];
 
-function getStatusBadgeColor(status: string): { color: string; textColor: string } {
-  switch (status) {
-    case 'active':
-      return { color: Colors.primaryFade, textColor: Colors.primary };
-    case 'completed':
-      return { color: Colors.successLight, textColor: Colors.success };
-    case 'archived':
-      return { color: Colors.surfaceVariant, textColor: Colors.textMuted };
-    default:
-      return { color: Colors.primaryFade, textColor: Colors.primary };
-  }
-}
-
-function getStrategyLabel(strategyId: string): string {
-  const map: Record<string, string> = {
-    fixed_weekly: 'Fixed Weekly',
-    fixed_monthly: 'Fixed Monthly',
-    pay_yourself_first: 'Pay Yourself First',
-    emergency_fund: 'Emergency Fund',
-    sinking_fund: 'Sinking Fund',
-    challenge_52week: '52-Week Challenge',
-    reverse_52week: 'Reverse 52-Week',
-    envelope_buckets: 'Envelope Buckets',
-    no_spend_day: 'No-Spend Days',
-    custom: 'Custom Plan',
-  };
-  return map[strategyId] ?? strategyId;
-}
-
-const SavingsScreen: React.FC = () => {
+export default function SavingsScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation<NavProp>();
+  const navigation = useNavigation<Navigation>();
   const {
     data,
     loading,
-    error,
     refreshData,
-    deleteSavingsGoal,
+    insights,
     archiveSavingsGoal,
     completeSavingsGoal,
+    deleteSavingsGoal,
   } = useApp();
+  const [filter, setFilter] = useState<Filter>('active');
+  const [query, setQuery] = useState('');
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const [filter, setFilter] = useState<FilterType>('active');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-
+  const goals = useMemo(() => data.savingsGoals
+    .filter(goal => filter === 'all' || goal.status === filter)
+    .filter(goal => `${goal.name} ${goal.notes}`.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((a, b) => a.targetDate.localeCompare(b.targetDate)), [data.savingsGoals, filter, query]);
+  const active = data.savingsGoals.filter(goal => goal.status === 'active');
+  const totalSaved = active.reduce((sum, goal) => sum + goal.savedAmount, 0);
+  const totalTarget = active.reduce((sum, goal) => sum + goal.targetAmount, 0);
   const currency = data.preferences.currency;
 
-  const filteredGoals = useMemo(() => {
-    const goals =
-      filter === 'all'
-        ? data.savingsGoals
-        : data.savingsGoals.filter(g => g.status === filter);
-    return [...goals].sort((a, b) => a.name.localeCompare(b.name));
-  }, [data.savingsGoals, filter]);
-
-  const handleToggleExpand = useCallback((id: string) => {
-    setExpandedId(prev => (prev === id ? null : id));
-  }, []);
-
-  const handleDelete = useCallback(async () => {
-    if (!deleteTargetId) return;
-    setActionLoading(deleteTargetId);
+  const archive = async (id: string) => {
     try {
-      await deleteSavingsGoal(deleteTargetId);
+      await archiveSavingsGoal(id);
+      setMenuId(null);
     } catch {
-      Alert.alert('Error', 'Failed to delete goal. Please try again.');
-    } finally {
-      setActionLoading(null);
-      setDeleteTargetId(null);
-      setExpandedId(null);
+      Alert.alert('Could not archive goal', 'Please try again.');
     }
-  }, [deleteTargetId, deleteSavingsGoal]);
-
-  const handleArchive = useCallback(
-    async (id: string) => {
-      setActionLoading(id);
-      try {
-        await archiveSavingsGoal(id);
-        setExpandedId(null);
-      } catch {
-        Alert.alert('Error', 'Failed to archive goal. Please try again.');
-      } finally {
-        setActionLoading(null);
-      }
-    },
-    [archiveSavingsGoal],
-  );
-
-  const handleComplete = useCallback(
-    async (id: string) => {
-      setActionLoading(id);
-      try {
-        await completeSavingsGoal(id);
-        setExpandedId(null);
-      } catch {
-        Alert.alert('Error', 'Failed to complete goal. Please try again.');
-      } finally {
-        setActionLoading(null);
-      }
-    },
-    [completeSavingsGoal],
-  );
-
-  const emptyMessages: Record<FilterType, string> = {
-    all: 'No savings goals yet. Tap "Add Goal" to create your first goal.',
-    active: 'No active goals. Tap "Add Goal" to create one.',
-    completed: 'No completed goals yet. Keep saving!',
-    archived: 'No archived goals.',
   };
 
-  if (loading && data.savingsGoals.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
+  const complete = async (id: string) => {
+    try {
+      await completeSavingsGoal(id);
+      setMenuId(null);
+    } catch {
+      Alert.alert('Could not complete goal', 'Please try again.');
+    }
+  };
 
-  if (error) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{error}</Text>
-        <Button title="Retry" onPress={refreshData} variant="primary" />
-      </View>
-    );
-  }
+  const remove = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteSavingsGoal(deleteId);
+    } catch {
+      Alert.alert('Could not delete goal', 'Please try again.');
+    } finally {
+      setDeleteId(null);
+      setMenuId(null);
+    }
+  };
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
-        <Text style={styles.headerTitle}>Savings Goals</Text>
-        <Button
-          title="Add Goal"
-          onPress={() => navigation.navigate('AddSavingsGoal')}
-          variant="primary"
-          size="sm"
-          icon="+"
-        />
+      <View style={[styles.header, {paddingTop: insets.top + 12}]}>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.eyebrow}>SAVE WITH INTENT</Text>
+            <Text style={styles.headerTitle}>Goals</Text>
+          </View>
+          <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('AddSavingsGoal')}>
+            <Icon name="plus" size={23} color="#D5F6E9" />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.overviewRow}>
+          <View style={styles.overviewBlock}>
+            <Text style={styles.overviewLabel}>SAVED</Text>
+            <Text style={styles.overviewValue}>{formatCurrency(totalSaved, currency)}</Text>
+          </View>
+          <View style={styles.overviewDivider} />
+          <View style={styles.overviewBlock}>
+            <Text style={styles.overviewLabel}>TO GO</Text>
+            <Text style={styles.overviewValue}>{formatCurrency(Math.max(0, totalTarget - totalSaved), currency)}</Text>
+          </View>
+          <View style={styles.overviewDivider} />
+          <View style={styles.overviewBlock}>
+            <Text style={styles.overviewLabel}>ACTIVE</Text>
+            <Text style={styles.overviewValue}>{active.length}</Text>
+          </View>
+        </View>
       </View>
 
-      <BannerAdComponent />
-
-      {/* Filter Pills */}
-      <View style={styles.filterRow}>
-        {FILTERS.map(f => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterPill, filter === f.key && styles.filterPillActive]}
-            onPress={() => setFilter(f.key)}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[styles.filterPillText, filter === f.key && styles.filterPillTextActive]}
-            >
-              {f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.tools}>
+        <View style={styles.searchBox}>
+          <Icon name="magnify" size={20} color={Colors.textMuted} />
+          <TextInput
+            accessibilityLabel="Search savings goals"
+            style={styles.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search goals and notes"
+            placeholderTextColor={Colors.textMuted}
+          />
+          {query ? (
+            <TouchableOpacity onPress={() => setQuery('')}><Icon name="close-circle" size={19} color={Colors.textMuted} /></TouchableOpacity>
+          ) : null}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+          {FILTERS.map(item => (
+            <TouchableOpacity
+              key={item.key}
+              style={[styles.filter, filter === item.key && styles.filterActive]}
+              onPress={() => setFilter(item.key)}>
+              <Text style={[styles.filterText, filter === item.key && styles.filterTextActive]}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       <SafeScrollView
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={refreshData}
-            colors={[Colors.primary]}
-            tintColor={Colors.primary}
-          />
-        }
-      >
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshData()} colors={[Colors.primary]} />}>
         <View style={styles.content}>
-          {filteredGoals.length === 0 ? (
-            <EmptyState
-              icon="🎯"
-              title="No Goals Found"
-              description={emptyMessages[filter]}
-              actionLabel={filter === 'all' || filter === 'active' ? 'Add Goal' : undefined}
-              onAction={
-                filter === 'all' || filter === 'active'
-                  ? () => navigation.navigate('AddSavingsGoal')
-                  : undefined
-              }
-            />
-          ) : (
-            filteredGoals.map(goal => {
-              const calc = calculateSavingsProgress(goal);
-              const progress = calc.progressPercent;
-              const isExpanded = expandedId === goal.id;
-              const isLoading = actionLoading === goal.id;
-              const statusColors = getStatusBadgeColor(goal.status);
-              const remaining = Math.max(0, goal.targetAmount - goal.savedAmount);
-
-              return (
+          {goals.map(goal => {
+            const percent = goal.targetAmount > 0 ? Math.min(100, goal.savedAmount / goal.targetAmount * 100) : 0;
+            const forecast = insights?.goals.find(item => item.goalId === goal.id);
+            const isOpen = menuId === goal.id;
+            return (
+              <View key={goal.id} style={styles.goalCard}>
                 <TouchableOpacity
-                  key={goal.id}
-                  activeOpacity={0.95}
-                  onLongPress={() => handleToggleExpand(goal.id)}
-                >
-                  <Card style={styles.goalCard}>
-                    {/* Goal Header */}
-                    <View style={styles.goalHeader}>
-                      <Text style={styles.goalName} numberOfLines={1}>
-                        {goal.name}
-                      </Text>
-                      <Badge
-                        label={goal.status.charAt(0).toUpperCase() + goal.status.slice(1)}
-                        color={statusColors.color}
-                        textColor={statusColors.textColor}
-                        size="sm"
-                      />
+                  activeOpacity={0.82}
+                  onPress={() => navigation.navigate('SavingsGoalDetail', {goalId: goal.id})}>
+                  <View style={styles.goalTop}>
+                    <View style={styles.goalIcon}><Icon name="flag-variant-outline" size={22} color={Colors.primaryDark} /></View>
+                    <View style={styles.goalCopy}>
+                      <Text style={styles.goalName} numberOfLines={1}>{goal.name}</Text>
+                      <Text style={styles.goalDate}>Target {formatDate(goal.targetDate)}</Text>
                     </View>
-
-                    {/* Strategy */}
-                    <Text style={styles.strategyLabel}>
-                      {getStrategyLabel(goal.strategyId)}
-                    </Text>
-
-                    {/* Progress Bar */}
-                    <ProgressBar
-                      progress={progress}
-                      height={8}
-                      showPercent={false}
-                      animated
-                      style={styles.progressBar}
-                    />
-
-                    {/* Amounts */}
-                    <View style={styles.amountRow}>
-                      <Text style={styles.savedAmount}>
-                        {formatCurrency(goal.savedAmount, currency)}
-                        <Text style={styles.targetLabel}>
-                          {' '}/ {formatCurrency(goal.targetAmount, currency)}
-                        </Text>
+                    <TouchableOpacity
+                      accessibilityLabel={`Actions for ${goal.name}`}
+                      hitSlop={10}
+                      style={styles.menuButton}
+                      onPress={() => setMenuId(isOpen ? null : goal.id)}>
+                      <Icon name="dots-horizontal" size={22} color={Colors.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.amountRow}>
+                    <Text style={styles.savedAmount}>{formatCurrency(goal.savedAmount, currency)}</Text>
+                    <Text style={styles.targetAmount}>of {formatCurrency(goal.targetAmount, currency)}</Text>
+                    <Text style={styles.percent}>{Math.round(percent)}%</Text>
+                  </View>
+                  <ProgressBar progress={percent} height={7} showPercent={false} />
+                  <View style={styles.metaRow}>
+                    <Text style={styles.remaining}>{formatCurrency(Math.max(0, goal.targetAmount - goal.savedAmount), currency)} remaining</Text>
+                    {forecast ? (
+                      <Text style={[styles.probability, {color: forecast.risk === 'low' ? Colors.success : forecast.risk === 'medium' ? Colors.warning : Colors.error}]}>
+                        {forecast.onTrackProbability}% on track • Estimated
                       </Text>
-                      <Text style={styles.progressPercent}>
-                        {formatPercent(progress)}
-                      </Text>
-                    </View>
-
-                    {/* Remaining */}
-                    {remaining > 0 && (
-                      <Text style={styles.remainingText}>
-                        {formatCurrency(remaining, currency)} remaining
-                      </Text>
-                    )}
-
-                    {/* Target Date */}
-                    {goal.targetDate ? (
-                      <Text style={styles.dateText}>
-                        Target: {formatDate(goal.targetDate)}
-                        {calc.daysRemaining !== null && calc.daysRemaining > 0
-                          ? ` · ${calc.daysRemaining} days left`
-                          : calc.daysRemaining === 0
-                          ? ' · Due today!'
-                          : ''}
-                      </Text>
-                    ) : null}
-
-                    {/* Action Buttons */}
-                    <View style={styles.actionRow}>
-                      <Button
-                        title="View"
-                        onPress={() =>
-                          navigation.navigate('SavingsGoalDetail', { goalId: goal.id })
-                        }
-                        variant="ghost"
-                        size="sm"
-                        style={styles.actionBtn}
-                      />
-                      <Button
-                        title="Edit"
-                        onPress={() =>
-                          navigation.navigate('EditSavingsGoal', { goalId: goal.id })
-                        }
-                        variant="outline"
-                        size="sm"
-                        style={styles.actionBtn}
-                      />
-                      <Button
-                        title="Log"
-                        onPress={() =>
-                          navigation.navigate('LogContribution', { goalId: goal.id })
-                        }
-                        variant="primary"
-                        size="sm"
-                        style={styles.actionBtn}
-                      />
-                      <Button
-                        title={isExpanded ? '▲' : '▼'}
-                        onPress={() => handleToggleExpand(goal.id)}
-                        variant="ghost"
-                        size="sm"
-                        style={styles.moreBtn}
-                      />
-                    </View>
-
-                    {/* Expanded Section */}
-                    {isExpanded && (
-                      <View style={styles.expandedSection}>
-                        <View style={styles.expandedDivider} />
-                        <View style={styles.expandedRow}>
-                          {goal.status !== 'completed' && (
-                            <Button
-                              title="Mark Complete"
-                              onPress={() => handleComplete(goal.id)}
-                              variant="secondary"
-                              size="sm"
-                              loading={isLoading}
-                              style={styles.expandedBtn}
-                            />
-                          )}
-                          {goal.status !== 'archived' && (
-                            <Button
-                              title="Archive"
-                              onPress={() => handleArchive(goal.id)}
-                              variant="outline"
-                              size="sm"
-                              loading={isLoading}
-                              style={styles.expandedBtn}
-                            />
-                          )}
-                          <Button
-                            title="Delete"
-                            onPress={() => setDeleteTargetId(goal.id)}
-                            variant="danger"
-                            size="sm"
-                            loading={isLoading}
-                            style={styles.expandedBtn}
-                          />
-                        </View>
-                      </View>
-                    )}
-                  </Card>
+                    ) : <Text style={styles.pending}>Estimate pending</Text>}
+                  </View>
                 </TouchableOpacity>
-              );
-            })
-          )}
+
+                {isOpen ? (
+                  <View style={styles.actionTray}>
+                    <TouchableOpacity style={styles.action} onPress={() => navigation.navigate('LogContribution', {goalId: goal.id})}>
+                      <Icon name="plus-circle-outline" size={20} color={Colors.primaryDark} /><Text style={styles.actionText}>Log</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.action} onPress={() => navigation.navigate('EditSavingsGoal', {goalId: goal.id})}>
+                      <Icon name="pencil-outline" size={20} color={Colors.secondary} /><Text style={styles.actionText}>Edit</Text>
+                    </TouchableOpacity>
+                    {goal.status === 'active' ? (
+                      <TouchableOpacity style={styles.action} onPress={() => void complete(goal.id)}>
+                        <Icon name="check-circle-outline" size={20} color={Colors.success} /><Text style={styles.actionText}>Complete</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity style={styles.action} onPress={() => void archive(goal.id)}>
+                      <Icon name="archive-outline" size={20} color={Colors.textMuted} /><Text style={styles.actionText}>Archive</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.action} onPress={() => setDeleteId(goal.id)}>
+                      <Icon name="delete-outline" size={20} color={Colors.error} /><Text style={[styles.actionText, {color: Colors.error}]}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+
+          {goals.length === 0 ? (
+            <View style={styles.empty}>
+              <View style={styles.emptyIcon}><Icon name="target" size={34} color={Colors.primary} /></View>
+              <Text style={styles.emptyTitle}>{query ? 'No matching goals' : 'A goal makes progress visible'}</Text>
+              <Text style={styles.emptyBody}>{query ? 'Try another search or filter.' : 'Add a target, choose a date, and start logging contributions.'}</Text>
+              {!query ? (
+                <TouchableOpacity style={styles.emptyButton} onPress={() => navigation.navigate('AddSavingsGoal')}>
+                  <Text style={styles.emptyButtonText}>Create a goal</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+
+          <TouchableOpacity style={styles.strategyCard} onPress={() => navigation.navigate('SavingsStrategy')}>
+            <View style={styles.strategyIcon}><Icon name="map-marker-path" size={23} color={Colors.secondary} /></View>
+            <View style={styles.goalCopy}>
+              <Text style={styles.strategyTitle}>Explore savings strategies</Text>
+              <Text style={styles.strategyBody}>Compare practical ways to build your plan.</Text>
+            </View>
+            <Icon name="chevron-right" size={22} color={Colors.textMuted} />
+          </TouchableOpacity>
+
+          <BannerAdComponent style={styles.ad} />
         </View>
       </SafeScrollView>
 
-      {/* Confirm Delete Dialog */}
       <ConfirmDialog
-        visible={deleteTargetId !== null}
-        title="Delete Goal?"
-        message="Delete this goal and all its contributions? This cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        visible={deleteId !== null}
+        title="Delete this goal?"
+        message="The goal and its full contribution history will be deleted locally and from the next server snapshot."
+        confirmLabel="Delete goal"
+        cancelLabel="Keep goal"
         destructive
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteTargetId(null)}
+        onConfirm={() => void remove()}
+        onCancel={() => setDeleteId(null)}
       />
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.xl,
-  },
-  errorText: {
-    ...Typography.body,
-    color: Colors.error,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  headerTitle: {
-    ...Typography.h3,
-    color: Colors.text,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    backgroundColor: Colors.surface,
-    gap: Spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  filterPill: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.round,
-    backgroundColor: Colors.surfaceVariant,
-  },
-  filterPillActive: {
-    backgroundColor: Colors.primary,
-  },
-  filterPillText: {
-    ...Typography.caption,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  filterPillTextActive: {
-    color: Colors.textInverse,
-  },
-  content: {
-    padding: Spacing.md,
-    gap: Spacing.md,
-  },
-  goalCard: {
-    padding: Spacing.md,
-  },
-  goalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.xs,
-  },
-  goalName: {
-    ...Typography.h4,
-    color: Colors.text,
-    flex: 1,
-    marginRight: Spacing.sm,
-  },
-  strategyLabel: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-    marginBottom: Spacing.sm,
-  },
-  progressBar: {
-    marginBottom: Spacing.sm,
-  },
-  amountRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 4,
-  },
-  savedAmount: {
-    ...Typography.body,
-    color: Colors.text,
-    fontWeight: '600',
-  },
-  targetLabel: {
-    fontWeight: '400',
-    color: Colors.textMuted,
-  },
-  progressPercent: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  remainingText: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-    marginBottom: 4,
-  },
-  dateText: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-    marginBottom: Spacing.sm,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-    marginTop: Spacing.xs,
-  },
-  actionBtn: {
-    flex: 1,
-  },
-  moreBtn: {
-    minWidth: 36,
-  },
-  expandedSection: {
-    marginTop: Spacing.sm,
-  },
-  expandedDivider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginBottom: Spacing.sm,
-  },
-  expandedRow: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-  },
-  expandedBtn: {
-    flex: 1,
-  },
+  screen: {flex: 1, backgroundColor: Colors.background},
+  header: {backgroundColor: '#092A23', paddingHorizontal: Spacing.lg, paddingBottom: 20, borderBottomLeftRadius: 28, borderBottomRightRadius: 28},
+  headerRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+  eyebrow: {...Typography.label, color: '#65D8AD', letterSpacing: 1.3},
+  headerTitle: {fontSize: 30, fontWeight: '800', letterSpacing: -1, color: '#F4FFF9', marginTop: 2},
+  headerButton: {width: 44, height: 44, borderRadius: 15, backgroundColor: '#123F34', alignItems: 'center', justifyContent: 'center'},
+  overviewRow: {flexDirection: 'row', alignItems: 'center', marginTop: 17},
+  overviewBlock: {flex: 1},
+  overviewDivider: {height: 30, width: 1, backgroundColor: '#2D5148', marginHorizontal: 10},
+  overviewLabel: {fontSize: 9, fontWeight: '700', letterSpacing: 1, color: '#77A99A'},
+  overviewValue: {fontSize: 15, fontWeight: '700', color: '#EAFBF5', marginTop: 3},
+  tools: {paddingTop: 14, backgroundColor: Colors.background},
+  searchBox: {height: 45, marginHorizontal: Spacing.md, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 15, borderWidth: 1, borderColor: Colors.border},
+  searchInput: {flex: 1, color: Colors.text, paddingHorizontal: 9, paddingVertical: 0},
+  filters: {gap: 8, paddingHorizontal: Spacing.md, paddingVertical: 11},
+  filter: {paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border},
+  filterActive: {backgroundColor: Colors.primaryDark, borderColor: Colors.primaryDark},
+  filterText: {fontSize: 12, fontWeight: '600', color: Colors.textSecondary},
+  filterTextActive: {color: Colors.textInverse},
+  content: {paddingHorizontal: Spacing.md, paddingTop: 2},
+  goalCard: {backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border, padding: 15, marginBottom: 10, ...Shadows.sm},
+  goalTop: {flexDirection: 'row', alignItems: 'center'},
+  goalIcon: {width: 42, height: 42, borderRadius: 14, backgroundColor: Colors.primaryFade, alignItems: 'center', justifyContent: 'center', marginRight: 11},
+  goalCopy: {flex: 1},
+  goalName: {...Typography.h4, color: Colors.text},
+  goalDate: {...Typography.caption, color: Colors.textMuted, marginTop: 2},
+  menuButton: {width: 34, height: 34, alignItems: 'center', justifyContent: 'center'},
+  amountRow: {flexDirection: 'row', alignItems: 'baseline', marginTop: 14, marginBottom: 9},
+  savedAmount: {fontSize: 19, fontWeight: '800', color: Colors.text},
+  targetAmount: {...Typography.caption, color: Colors.textMuted, marginLeft: 5, flex: 1},
+  percent: {fontSize: 13, fontWeight: '800', color: Colors.primaryDark},
+  metaRow: {flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 9},
+  remaining: {...Typography.caption, color: Colors.textMuted},
+  probability: {fontSize: 10, fontWeight: '700', textAlign: 'right'},
+  pending: {fontSize: 10, color: Colors.textMuted},
+  actionTray: {flexDirection: 'row', flexWrap: 'wrap', gap: 7, borderTopWidth: 1, borderTopColor: Colors.divider, marginTop: 14, paddingTop: 12},
+  action: {flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 10, backgroundColor: Colors.surfaceVariant},
+  actionText: {fontSize: 11, fontWeight: '700', color: Colors.textSecondary},
+  empty: {alignItems: 'center', padding: 30, backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border},
+  emptyIcon: {width: 64, height: 64, borderRadius: 22, backgroundColor: Colors.primaryFade, alignItems: 'center', justifyContent: 'center'},
+  emptyTitle: {...Typography.h2, color: Colors.text, textAlign: 'center', marginTop: 14},
+  emptyBody: {...Typography.body, color: Colors.textSecondary, textAlign: 'center', marginTop: 7},
+  emptyButton: {backgroundColor: Colors.primary, borderRadius: 99, paddingHorizontal: 20, paddingVertical: 11, marginTop: 17},
+  emptyButtonText: {color: Colors.textInverse, fontWeight: '700'},
+  strategyCard: {flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.lg, padding: 14, marginTop: 4},
+  strategyIcon: {width: 42, height: 42, borderRadius: 14, backgroundColor: Colors.secondaryFade, alignItems: 'center', justifyContent: 'center', marginRight: 11},
+  strategyTitle: {...Typography.body, color: Colors.text, fontWeight: '700'},
+  strategyBody: {...Typography.caption, color: Colors.textMuted, marginTop: 2},
+  ad: {marginTop: 18},
 });
-
-export default SavingsScreen;

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="st_background">#071512</color>
+    <color name="st_surface">#0D211C</color>
+    <color name="st_surface_variant">#142B24</color>
+    <color name="st_surface_elevated">#173128</color>
+    <color name="st_text">#F1FBF6</color>
+    <color name="st_text_secondary">#C0D4CC</color>
+    <color name="st_text_muted">#91AA9F</color>
+    <color name="st_text_disabled">#6D8279</color>
+    <color name="st_success_light">#123D31</color>
+    <color name="st_warning_light">#3D2C12</color>
+    <color name="st_error_light">#402027</color>
+    <color name="st_info_light">#19294B</color>
+    <color name="st_border">#29453B</color>
+    <color name="st_border_light">#203B32</color>
+    <color name="st_divider">#203A32</color>
+    <color name="st_tab_inactive">#8FA39A</color>
+    <color name="st_primary_strong">#4DE2AD</color>
+    <color name="st_primary_fade">#123D31</color>
+    <color name="st_secondary_fade">#19294B</color>
+    <color name="st_accent_fade">#3D2C12</color>
+    <color name="st_success">#4DE2AD</color>
+    <color name="st_warning">#FBBF24</color>
+    <color name="st_error">#FB7185</color>
+    <color name="st_info">#8EA7FF</color>
+</resources>

@@ -4,22 +4,23 @@ import {
   Text,
   StyleSheet,
   Alert,
-  ScrollView,
+  Modal,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApp } from '../../context/AppContext';
-import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../theme';
-import { formatCurrency, formatPercent, formatDate, formatRelativeDate, formatStrategyName } from '../../utils/formatters';
+import { Colors, Spacing, Typography } from '../../theme';
+import { formatCurrency, formatPercent, formatDate, formatStrategyName } from '../../utils/formatters';
 import { calculateSavingsProgress, calculate52WeekChallenge } from '../../utils/calculations';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import ProgressBar from '../../components/common/ProgressBar';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import Badge from '../../components/common/Badge';
-import Disclaimer from '../../components/common/Disclaimer';
 import SafeScrollView from '../../components/layout/SafeScrollView';
 import StickyActionBar from '../../components/layout/StickyActionBar';
+import AppTextInput from '../../components/common/TextInput';
+import DateField from '../../components/common/DateField';
 import type { RootStackParamList } from '../../types/index';
 import { SAVINGS_STRATEGIES } from '../../data/strategies';
 
@@ -30,7 +31,7 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const { goalId } = route.params;
-  const { data, deleteSavingsGoal, archiveSavingsGoal, completeSavingsGoal, deleteContribution } = useApp();
+  const { data, deleteSavingsGoal, archiveSavingsGoal, completeSavingsGoal, deleteContribution, updateContribution } = useApp();
 
   const goal = data.savingsGoals.find(g => g.id === goalId);
   const contributions = data.contributions.filter(c => c.goalId === goalId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -39,12 +40,17 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
   const [deleteGoalConfirm, setDeleteGoalConfirm] = useState(false);
   const [deleteContribId, setDeleteContribId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [editContribId, setEditContribId] = useState<string | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const handleGoBack = useCallback(() => navigation.goBack(), [navigation]);
 
   if (!goal) {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorText}>Goal not found.</Text>
-        <Button title="Go Back" onPress={() => navigation.goBack()} variant="primary" />
+        <Button title="Go Back" onPress={handleGoBack} variant="primary" />
       </View>
     );
   }
@@ -62,7 +68,7 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
 
   const badge = getStatusBadge(goal.status);
 
-  const handleDeleteGoal = useCallback(async () => {
+  const handleDeleteGoal = async () => {
     setDeleteGoalConfirm(false);
     setActionLoading(true);
     try {
@@ -73,9 +79,9 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
     } finally {
       setActionLoading(false);
     }
-  }, [goalId, deleteSavingsGoal, navigation]);
+  };
 
-  const handleDeleteContrib = useCallback(async () => {
+  const handleDeleteContrib = async () => {
     if (!deleteContribId) return;
     try {
       await deleteContribution(deleteContribId);
@@ -84,9 +90,28 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
     } finally {
       setDeleteContribId(null);
     }
-  }, [deleteContribId, deleteContribution]);
+  };
 
-  const handleArchive = useCallback(async () => {
+  const openContributionEditor = (id: string) => {
+    const contribution = contributions.find(item => item.id === id);
+    if (!contribution) return;
+    setEditContribId(id);
+    setEditAmount(String(contribution.amount));
+    setEditDate(contribution.date);
+    setEditNotes(contribution.notes);
+  };
+
+  const saveContributionEdit = async () => {
+    const amount = Number(editAmount);
+    if (!editContribId || !Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Check the amount', 'Enter an amount above zero.');
+      return;
+    }
+    await updateContribution(editContribId, {amount, date: editDate, notes: editNotes.trim()});
+    setEditContribId(null);
+  };
+
+  const handleArchive = async () => {
     setActionLoading(true);
     try {
       await archiveSavingsGoal(goalId);
@@ -95,9 +120,9 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
     } finally {
       setActionLoading(false);
     }
-  }, [goalId, archiveSavingsGoal]);
+  };
 
-  const handleComplete = useCallback(async () => {
+  const handleComplete = async () => {
     setActionLoading(true);
     try {
       await completeSavingsGoal(goalId);
@@ -106,7 +131,7 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
     } finally {
       setActionLoading(false);
     }
-  }, [goalId, completeSavingsGoal]);
+  };
 
   return (
     <View style={styles.screen}>
@@ -225,12 +250,10 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
                   <Text style={styles.contribDate}>{formatDate(c.date)}</Text>
                   {c.notes ? <Text style={styles.contribNote}>{c.notes}</Text> : null}
                 </View>
-                <Button
-                  title="Del"
-                  onPress={() => setDeleteContribId(c.id)}
-                  variant="danger"
-                  size="sm"
-                />
+                <View style={styles.historyActions}>
+                  <Button title="Edit" onPress={() => openContributionEditor(c.id)} variant="outline" size="sm" />
+                  <Button title="Del" onPress={() => setDeleteContribId(c.id)} variant="danger" size="sm" />
+                </View>
               </View>
             ))
           )}
@@ -244,7 +267,6 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
           </Card>
         ) : null}
 
-        <Disclaimer compact style={styles.disclaimer} />
       </SafeScrollView>
 
       {/* Action Bar */}
@@ -307,6 +329,20 @@ export default function SavingsGoalDetailScreen(): React.JSX.Element {
         onConfirm={handleDeleteContrib}
         onCancel={() => setDeleteContribId(null)}
       />
+      <Modal visible={editContribId !== null} transparent animationType="slide" onRequestClose={() => setEditContribId(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.editorSheet}>
+            <Text style={styles.editorTitle}>Edit contribution</Text>
+            <AppTextInput label="Amount" value={editAmount} onChangeText={setEditAmount} keyboardType="decimal-pad" prefix={currency} />
+            <DateField label="Date" value={editDate} onChange={setEditDate} maximumDate={new Date()} />
+            <AppTextInput label="Notes" value={editNotes} onChangeText={setEditNotes} multiline numberOfLines={3} maxLength={500} helperText="Uploaded unchanged. Do not include personal information." />
+            <View style={styles.editorActions}>
+              <Button title="Cancel" onPress={() => setEditContribId(null)} variant="ghost" style={styles.editorButton} />
+              <Button title="Save changes" onPress={() => void saveContributionEdit()} style={styles.editorButton} />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -357,4 +393,10 @@ const styles = StyleSheet.create({
   disclaimer: { marginHorizontal: Spacing.md, marginBottom: Spacing.lg },
   actionRow: { flexDirection: 'row', gap: Spacing.sm },
   actionBtn: { flex: 1 },
+  historyActions: { flexDirection: 'row', gap: Spacing.xs },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(3,18,14,0.55)', justifyContent: 'flex-end' },
+  editorSheet: { backgroundColor: Colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: Spacing.lg, paddingBottom: 32 },
+  editorTitle: { ...Typography.h2, color: Colors.text, marginBottom: Spacing.md },
+  editorActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  editorButton: { flex: 1 },
 });

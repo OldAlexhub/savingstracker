@@ -1,564 +1,301 @@
-﻿import React, { useMemo } from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import { useApp } from '../context/AppContext';
-import { Colors, Spacing, Typography, BorderRadius } from '../theme';
-import { calculateSavingsProgress } from '../utils/calculations';
-import { formatCurrency, formatPercent, formatDate, formatMonths } from '../utils/formatters';
-
-import Card from '../components/common/Card';
-import Button from '../components/common/Button';
-import SectionHeader from '../components/common/SectionHeader';
-import StatCard from '../components/common/StatCard';
-import ActivityFeed from '../components/common/ActivityFeed';
-import Badge from '../components/common/Badge';
-import Disclaimer from '../components/common/Disclaimer';
 import BannerAdComponent from '../components/ads/BannerAdComponent';
+import NativeAdPlaceholder from '../components/ads/NativeAdPlaceholder';
 import SafeScrollView from '../components/layout/SafeScrollView';
+import {useApp} from '../context/AppContext';
+import {BorderRadius, Colors, Shadows, Spacing, Typography} from '../theme';
+import {formatCurrency, formatDate} from '../utils/formatters';
 
-type RootStackParamList = {
-  MainTabs: undefined;
-  AddSavingsGoal: undefined;
-  EditSavingsGoal: { goalId: string };
-  SavingsGoalDetail: { goalId: string };
-  SavingsStrategy: undefined;
-  AddDebt: undefined;
-  EditDebt: { debtId: string };
-  DebtDetail: { debtId: string };
-  DebtStrategy: undefined;
-  LogContribution: { goalId?: string };
-  LogDebtPayment: { debtId?: string };
-};
-
-type NavProp = NativeStackNavigationProp<RootStackParamList>;
-
-// Inline payoff months calculation to avoid import drift
-function calcDebtPayoffMonths(
-  balance: number,
-  apr: number | null,
-  minimumPayment: number | null,
-): number | null {
-  if (balance <= 0) return 0;
-  if (!minimumPayment || minimumPayment <= 0) return null;
-
-  if (!apr || apr <= 0) {
-    return Math.ceil(balance / minimumPayment);
-  }
-
-  const monthlyRate = apr / 100 / 12;
-  const monthlyInterest = balance * monthlyRate;
-  if (minimumPayment <= monthlyInterest) return null;
-
-  const n =
-    -Math.log(1 - (monthlyRate * balance) / minimumPayment) /
-    Math.log(1 + monthlyRate);
-
-  if (!isFinite(n) || isNaN(n) || n < 0) return null;
-  return Math.min(Math.ceil(n), 600);
+function riskColor(risk: string): string {
+  if (risk === 'low') return Colors.success;
+  if (risk === 'medium') return Colors.warning;
+  return Colors.error;
 }
 
-function isoDateNDaysAgo(n: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-const InsightsScreen: React.FC = () => {
+export default function InsightsScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation<NavProp>();
-  const { data, loading, error, refreshData } = useApp();
+  const {
+    data,
+    insights,
+    loading,
+    refreshInsights,
+    runScenario,
+    syncStatus,
+    trackEvent,
+  } = useApp();
+  const [scenarioType, setScenarioType] = useState<'goal_contribution' | 'debt_extra_payment'>('goal_contribution');
+  const [monthlyAmount, setMonthlyAmount] = useState('100');
+  const [scenarioResult, setScenarioResult] = useState<Record<string, number | string | null> | null>(null);
+  const [scenarioLoading, setScenarioLoading] = useState(false);
+  const [scenarioMessage, setScenarioMessage] = useState<string | null>(null);
 
+  const activeGoals = data.savingsGoals.filter(item => item.status === 'active');
+  const activeDebts = data.debtAccounts.filter(item => item.status === 'active');
+  const scenarioRecord = scenarioType === 'goal_contribution' ? activeGoals[0] : activeDebts[0];
   const currency = data.preferences.currency;
 
-  const sevenDaysAgo = useMemo(() => isoDateNDaysAgo(7), []);
-  const thirtyDaysAgo = useMemo(() => isoDateNDaysAgo(30), []);
-
-  const savedThisWeek = useMemo(() => {
-    return data.contributions
-      .filter(c => new Date(c.date) >= sevenDaysAgo)
-      .reduce((sum, c) => sum + c.amount, 0);
-  }, [data.contributions, sevenDaysAgo]);
-
-  const savedThisMonth = useMemo(() => {
-    return data.contributions
-      .filter(c => new Date(c.date) >= thirtyDaysAgo)
-      .reduce((sum, c) => sum + c.amount, 0);
-  }, [data.contributions, thirtyDaysAgo]);
-
-  const debtPaidThisMonth = useMemo(() => {
-    return data.debtPayments
-      .filter(p => new Date(p.date) >= thirtyDaysAgo)
-      .reduce((sum, p) => sum + p.amount, 0);
-  }, [data.debtPayments, thirtyDaysAgo]);
-
-  const totalSaved = useMemo(() => {
-    return data.savingsGoals
-      .filter(g => g.status === 'active')
-      .reduce((sum, g) => sum + g.savedAmount, 0);
-  }, [data.savingsGoals]);
-
-  const totalDebt = useMemo(() => {
-    return data.debtAccounts
-      .filter(d => d.status === 'active')
-      .reduce((sum, d) => sum + d.currentBalance, 0);
-  }, [data.debtAccounts]);
-
-  const netPosition = totalSaved - totalDebt;
-
-  const activeGoals = useMemo(
-    () => data.savingsGoals.filter(g => g.status === 'active'),
-    [data.savingsGoals],
-  );
-
-  const activeDebts = useMemo(
-    () => data.debtAccounts.filter(d => d.status === 'active'),
-    [data.debtAccounts],
-  );
-
-  // Build recent activity from all data
-  const recentActivity = useMemo(() => {
-    type ActivityItem = {
-      id: string;
-      type: 'contribution' | 'debt_payment' | 'goal_created' | 'debt_created' | 'goal_completed' | 'debt_paid_off';
-      description: string;
-      amount: number | null;
-      date: string;
+  const localAction = useMemo(() => {
+    if (activeGoals[0]) {
+      return {
+        title: `Build consistency for ${activeGoals[0].name}`,
+        reason: 'Log contributions as they happen to improve the forecast range and on-track estimate.',
+      };
+    }
+    if (activeDebts[0]) {
+      return {
+        title: `Review ${activeDebts[0].name}`,
+        reason: 'Adding the minimum payment and APR produces a more useful payoff estimate.',
+      };
+    }
+    return {
+      title: 'Create your first trackable target',
+      reason: 'Insights appear as soon as you add a savings goal or debt account.',
     };
+  }, [activeDebts, activeGoals]);
 
-    const items: ActivityItem[] = [];
+  useEffect(() => {
+    void trackEvent('insight_viewed', 'Insights');
+  }, [trackEvent]);
 
-    for (const c of data.contributions) {
-      const goal = data.savingsGoals.find(g => g.id === c.goalId);
-      items.push({
-        id: `contrib-${c.id}`,
-        type: 'contribution',
-        description: `Saved${goal ? ` to "${goal.name}"` : ''}`,
-        amount: c.amount,
-        date: c.date,
-      });
+  const simulate = async () => {
+    const amount = Number(monthlyAmount);
+    if (!scenarioRecord || !Number.isFinite(amount) || amount <= 0) {
+      setScenarioMessage('Choose a record and enter an amount above zero.');
+      return;
     }
-
-    for (const p of data.debtPayments) {
-      const debt = data.debtAccounts.find(d => d.id === p.debtId);
-      items.push({
-        id: `pay-${p.id}`,
-        type: 'debt_payment',
-        description: `Payment on${debt ? ` "${debt.name}"` : ' debt'}`,
-        amount: p.amount,
-        date: p.date,
-      });
+    setScenarioLoading(true);
+    setScenarioMessage(null);
+    try {
+      const result = await runScenario({type: scenarioType, recordId: scenarioRecord.id, monthlyAmount: amount});
+      setScenarioResult(result);
+      if (!result) {
+        throw new Error('No server result');
+      }
+    } catch {
+      const estimatedMonths = scenarioType === 'goal_contribution'
+        ? Math.ceil(Math.max(0, activeGoals[0].targetAmount - activeGoals[0].savedAmount) / amount)
+        : Math.ceil(activeDebts[0].currentBalance / ((activeDebts[0].minimumPayment ?? 0) + amount));
+      setScenarioResult({estimatedMonths});
+      setScenarioMessage('Showing the offline deterministic estimate. It will refresh when the analysis server is available.');
+    } finally {
+      setScenarioLoading(false);
     }
-
-    items.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-    );
-    return items.slice(0, 10);
-  }, [data.contributions, data.debtPayments, data.savingsGoals, data.debtAccounts]);
-
-  if (loading && activeGoals.length === 0 && activeDebts.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{error}</Text>
-        <Button title="Retry" onPress={refreshData} variant="primary" />
-      </View>
-    );
-  }
+  };
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
-        <Text style={styles.headerTitle}>Insights &amp; Progress</Text>
+      <View style={[styles.header, {paddingTop: insets.top + 12}]}>
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={styles.eyebrow}>EXPLAINABLE ANALYSIS</Text>
+            <Text style={styles.title}>Insights</Text>
+          </View>
+          <TouchableOpacity
+            accessibilityLabel="Refresh insights"
+            style={styles.refreshButton}
+            onPress={() => void refreshInsights()}>
+            {syncStatus === 'syncing' ? (
+              <ActivityIndicator color="#A5F0D2" />
+            ) : (
+              <Icon name="refresh" size={23} color="#A5F0D2" />
+            )}
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.headerBody}>
+          Deterministic math first. Pattern models only add context when their quality is proven.
+        </Text>
       </View>
 
-      <BannerAdComponent />
-
       <SafeScrollView
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={refreshData}
-            colors={[Colors.primary]}
-            tintColor={Colors.primary}
-          />
-        }
-      >
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshInsights()} colors={[Colors.primary]} />}>
         <View style={styles.content}>
-          {/* This Period */}
-          <View style={styles.section}>
-            <SectionHeader title="This Period" style={styles.sectionHeader} />
-            <View style={styles.statGrid}>
-              <View style={styles.statRow}>
-                <StatCard
-                  label="Saved This Week"
-                  value={formatCurrency(savedThisWeek, currency)}
-                  color={Colors.success}
-                  style={styles.statCardHalf}
-                />
-                <StatCard
-                  label="Saved This Month"
-                  value={formatCurrency(savedThisMonth, currency)}
-                  color={Colors.primary}
-                  style={styles.statCardHalf}
-                />
-              </View>
-              <View style={styles.statRow}>
-                <StatCard
-                  label="Debt Paid (30d)"
-                  value={formatCurrency(debtPaidThisMonth, currency)}
-                  color={debtPaidThisMonth > 0 ? Colors.success : Colors.textMuted}
-                  style={styles.statCardHalf}
-                />
-                <StatCard
-                  label="Net Position"
-                  value={
-                    (netPosition >= 0 ? '+' : '') +
-                    formatCurrency(Math.abs(netPosition), currency)
-                  }
-                  color={netPosition >= 0 ? Colors.success : Colors.error}
-                  style={styles.statCardHalf}
-                />
+          <View style={styles.freshnessRow}>
+            <View style={[styles.statusDot, {backgroundColor: insights ? Colors.success : Colors.warning}]} />
+            <Text style={styles.freshnessText}>
+              {insights
+                ? `Updated ${formatDate(insights.generatedAt)}`
+                : 'Offline baseline active • server analysis pending'}
+            </Text>
+            <View style={styles.estimatedPill}><Text style={styles.estimatedText}>ESTIMATED</Text></View>
+          </View>
+
+          <Text style={styles.sectionTitle}>Next-best actions</Text>
+          {(insights?.nextActions.length ? insights.nextActions : [{id: 'local', ...localAction, priority: 1}]).slice(0, 3).map((action, index) => (
+            <View key={action.id} style={styles.actionCard}>
+              <View style={styles.actionIndex}><Text style={styles.actionIndexText}>{index + 1}</Text></View>
+              <View style={styles.actionCopy}>
+                <Text style={styles.actionTitle}>{action.title}</Text>
+                <Text style={styles.actionReason}>{action.reason}</Text>
               </View>
             </View>
-          </View>
+          ))}
 
-          {/* Savings Goals Status */}
-          <View style={styles.section}>
-            <SectionHeader
-              title="Savings Goals Status"
-              style={styles.sectionHeader}
-            />
-            {activeGoals.length === 0 ? (
-              <Card style={styles.emptyCard}>
-                <Text style={styles.emptyCardText}>
-                  No active savings goals. Add a goal to track progress here.
-                </Text>
-              </Card>
-            ) : (
-              activeGoals.map(goal => {
-                const calc = calculateSavingsProgress(goal);
-                const onTrack = calc.isOnTrack;
+          <NativeAdPlaceholder style={styles.nativeAd} />
 
-                return (
-                  <Card key={goal.id} style={styles.itemCard}>
-                    <View style={styles.itemRow}>
-                      <View style={styles.itemInfo}>
-                        <Text style={styles.itemName} numberOfLines={1}>
-                          {goal.name}
-                        </Text>
-                        <Text style={styles.itemSub}>
-                          {formatPercent(calc.progressPercent)} complete
-                          {calc.estimatedCompletionDate
-                            ? ` - Est. ${formatDate(calc.estimatedCompletionDate)}`
-                            : ''}
-                        </Text>
-                      </View>
-                      <Badge
-                        label={onTrack ? 'On Track' : 'Off Track'}
-                        color={onTrack ? Colors.successLight : Colors.warningLight}
-                        textColor={onTrack ? Colors.success : Colors.warning}
-                        size="sm"
-                      />
+          {insights?.goals.length ? (
+            <>
+              <Text style={styles.sectionTitle}>Goal outlook</Text>
+              {insights.goals.map(goal => (
+                <View key={goal.goalId} style={styles.forecastCard}>
+                  <View style={styles.forecastTop}>
+                    <View style={styles.forecastCopy}>
+                      <Text style={styles.forecastName}>{goal.label}</Text>
+                      <Text style={styles.forecastCaption}>On-track probability</Text>
                     </View>
-                    <View style={styles.progressTrack}>
-                      <View
-                        style={[
-                          styles.progressFill,
-                          {
-                            width: `${Math.min(100, calc.progressPercent)}%`,
-                            backgroundColor: onTrack
-                              ? Colors.success
-                              : Colors.warning,
-                          },
-                        ]}
-                      />
+                    <Text style={[styles.probability, {color: riskColor(goal.risk)}]}>{goal.onTrackProbability}%</Text>
+                  </View>
+                  <View style={styles.barTrack}>
+                    <View style={[styles.barFill, {width: `${goal.onTrackProbability}%`, backgroundColor: riskColor(goal.risk)}]} />
+                  </View>
+                  <Text style={styles.explanation}>{goal.explanation}</Text>
+                  <Text style={styles.range}>
+                    {goal.estimatedCompletionDate
+                      ? `Estimated ${formatDate(goal.estimatedCompletionDate)} ± ${goal.estimatedRangeDays ?? 0} days`
+                      : 'More contribution history is needed for a completion range.'}
+                  </Text>
+                </View>
+              ))}
+            </>
+          ) : null}
+
+          {insights?.debts.length ? (
+            <>
+              <Text style={styles.sectionTitle}>Debt outlook</Text>
+              {insights.debts.map(debt => (
+                <View key={debt.debtId} style={styles.forecastCard}>
+                  <View style={styles.forecastTop}>
+                    <View style={styles.forecastCopy}>
+                      <Text style={styles.forecastName}>{debt.label}</Text>
+                      <Text style={styles.forecastCaption}>Payment consistency</Text>
                     </View>
-                  </Card>
-                );
-              })
-            )}
-          </View>
+                    <Text style={[styles.probability, {color: riskColor(debt.risk)}]}>{debt.paymentConsistency}%</Text>
+                  </View>
+                  <View style={styles.barTrack}>
+                    <View style={[styles.barFill, {width: `${debt.paymentConsistency}%`, backgroundColor: riskColor(debt.risk)}]} />
+                  </View>
+                  <Text style={styles.explanation}>{debt.explanation}</Text>
+                </View>
+              ))}
+            </>
+          ) : null}
 
-          {/* Debt Payoff Timeline */}
-          <View style={styles.section}>
-            <SectionHeader
-              title="Debt Payoff Timeline"
-              style={styles.sectionHeader}
-            />
-            {activeDebts.length === 0 ? (
-              <Card style={styles.emptyCard}>
-                <Text style={styles.emptyCardText}>
-                  No active debts. You&apos;re debt-free or add a debt to track it.
-                </Text>
-              </Card>
-            ) : (
-              activeDebts.map(debt => {
-                const missingInfo =
-                  debt.apr === null || debt.minimumPayment === null;
-                const months = missingInfo
-                  ? null
-                  : calcDebtPayoffMonths(
-                      debt.currentBalance,
-                      debt.apr,
-                      debt.minimumPayment,
-                    );
-
-                return (
-                  <Card key={debt.id} style={styles.itemCard}>
-                    <View style={styles.itemRow}>
-                      <View style={styles.itemInfo}>
-                        <Text style={styles.itemName} numberOfLines={1}>
-                          {debt.name}
-                        </Text>
-                        <Text style={styles.itemSub}>
-                          Balance: {formatCurrency(debt.currentBalance, currency)}
-                          {debt.apr !== null ? ` - ${debt.apr.toFixed(2)}% APR` : ''}
-                        </Text>
-                      </View>
-                      <View style={styles.payoffBadge}>
-                        {missingInfo ? (
-                          <Badge
-                            label="Info needed"
-                            color={Colors.warningLight}
-                            textColor={Colors.warning}
-                            size="sm"
-                          />
-                        ) : months === null ? (
-                          <Badge
-                            label="Payment low"
-                            color={Colors.errorLight}
-                            textColor={Colors.error}
-                            size="sm"
-                          />
-                        ) : (
-                          <Badge
-                            label={formatMonths(months)}
-                            color={Colors.primaryFade}
-                            textColor={Colors.primary}
-                            size="sm"
-                          />
-                        )}
-                      </View>
-                    </View>
-                    {missingInfo && (
-                      <Text style={styles.warningText}>
-                        Add APR and minimum payment for payoff estimate.
-                      </Text>
-                    )}
-                    {!missingInfo && months === null && (
-                      <Text style={styles.warningText}>
-                        Minimum payment doesn&apos;t cover monthly interest. Increase payment.
-                      </Text>
-                    )}
-                  </Card>
-                );
-              })
-            )}
-          </View>
-
-          {/* Strategy Comparison Notes */}
-          <View style={styles.section}>
-            <SectionHeader
-              title="Strategy Comparison"
-              style={styles.sectionHeader}
-            />
-            <Card style={styles.strategyCard}>
-              <Text style={styles.strategyTitle}>Avalanche Method</Text>
-              <Text style={styles.strategyDesc}>
-                Pay off the highest APR debt first. Minimizes total interest
-                paid - the mathematically optimal approach.
-              </Text>
-
-              <View style={styles.strategyDivider} />
-
-              <Text style={styles.strategyTitle}>Snowball Method</Text>
-              <Text style={styles.strategyDesc}>
-                Pay off the smallest balance first. Provides quick psychological
-                wins and keeps motivation high.
-              </Text>
-
-              <View style={styles.strategyDivider} />
-
-              <Text style={[styles.strategyDesc, styles.strategyNote]}>
-                The best strategy is the one you&apos;ll stick with. Compare
-                both to see which fits your situation.
-              </Text>
-
-              <Button
-                title="View Debt Strategies"
-                onPress={() => navigation.navigate('DebtStrategy')}
-                variant="primary"
-                size="md"
-                style={styles.strategyButton}
+          <Text style={styles.sectionTitle}>What-if studio</Text>
+          <View style={styles.simulator}>
+            <View style={styles.segmented}>
+              <TouchableOpacity
+                style={[styles.segment, scenarioType === 'goal_contribution' && styles.segmentActive]}
+                onPress={() => {setScenarioType('goal_contribution'); setScenarioResult(null);}}>
+                <Text style={[styles.segmentText, scenarioType === 'goal_contribution' && styles.segmentTextActive]}>Save more</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.segment, scenarioType === 'debt_extra_payment' && styles.segmentActive]}
+                onPress={() => {setScenarioType('debt_extra_payment'); setScenarioResult(null);}}>
+                <Text style={[styles.segmentText, scenarioType === 'debt_extra_payment' && styles.segmentTextActive]}>Pay extra</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.simLabel}>Monthly amount for {scenarioRecord?.name ?? 'your first record'}</Text>
+            <View style={styles.amountRow}>
+              <Text style={styles.currency}>{currency}</Text>
+              <TextInput
+                accessibilityLabel="Monthly scenario amount"
+                style={styles.amountInput}
+                keyboardType="decimal-pad"
+                value={monthlyAmount}
+                onChangeText={setMonthlyAmount}
+                placeholder="100"
+                placeholderTextColor={Colors.textDisabled}
               />
-            </Card>
+            </View>
+            <TouchableOpacity
+              style={[styles.simButton, (!scenarioRecord || scenarioLoading) && styles.disabled]}
+              disabled={!scenarioRecord || scenarioLoading}
+              onPress={() => void simulate()}>
+              {scenarioLoading ? <ActivityIndicator color={Colors.textInverse} /> : <Text style={styles.simButtonText}>Run estimated scenario</Text>}
+            </TouchableOpacity>
+            {scenarioResult ? (
+              <View style={styles.resultCard}>
+                <Icon name="chart-timeline-variant" size={24} color={Colors.primaryDark} />
+                <View style={styles.resultCopy}>
+                  <Text style={styles.resultValue}>
+                    {scenarioResult.estimatedMonths === null
+                      ? 'No reliable payoff yet'
+                      : `${scenarioResult.estimatedMonths} month${scenarioResult.estimatedMonths === 1 ? '' : 's'}`}
+                  </Text>
+                  <Text style={styles.resultLabel}>Estimated time at {formatCurrency(Number(monthlyAmount), currency)} per month</Text>
+                </View>
+              </View>
+            ) : null}
+            {scenarioMessage ? <Text style={styles.scenarioMessage}>{scenarioMessage}</Text> : null}
           </View>
 
-          {/* Recent Activity */}
-          <View style={styles.section}>
-            <SectionHeader title="Recent Activity" style={styles.sectionHeader} />
-            <Card style={styles.activityCard}>
-              <ActivityFeed items={recentActivity} currency={currency} />
-            </Card>
-          </View>
-
-          <Disclaimer compact style={styles.disclaimer} />
+          <BannerAdComponent style={styles.ad} />
         </View>
       </SafeScrollView>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.xl,
-  },
-  errorText: {
-    ...Typography.body,
-    color: Colors.error,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  headerTitle: {
-    ...Typography.h3,
-    color: Colors.text,
-  },
-  content: {
-    padding: Spacing.md,
-  },
-  section: {
-    marginBottom: Spacing.lg,
-  },
-  sectionHeader: {
-    marginBottom: Spacing.sm,
-  },
-  statGrid: {
-    gap: Spacing.sm,
-  },
-  statRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  statCardHalf: {
-    flex: 1,
-    minHeight: 116,
-  },
-  emptyCard: {
-    padding: Spacing.md,
-    alignItems: 'center',
-  },
-  emptyCardText: {
-    ...Typography.body,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  itemCard: {
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.sm,
-  },
-  itemInfo: {
-    flex: 1,
-    marginRight: Spacing.sm,
-  },
-  itemName: {
-    ...Typography.h4,
-    color: Colors.text,
-    marginBottom: 2,
-  },
-  itemSub: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-  },
-  payoffBadge: {
-    flexShrink: 0,
-  },
-  progressTrack: {
-    height: 6,
-    backgroundColor: Colors.border,
-    borderRadius: BorderRadius.round,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 6,
-    borderRadius: BorderRadius.round,
-  },
-  warningText: {
-    ...Typography.caption,
-    color: Colors.warning,
-    marginTop: Spacing.xs,
-  },
-  strategyCard: {
-    padding: Spacing.md,
-  },
-  strategyTitle: {
-    ...Typography.h4,
-    color: Colors.text,
-    marginBottom: Spacing.xs,
-  },
-  strategyDesc: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    lineHeight: 22,
-  },
-  strategyNote: {
-    fontStyle: 'italic',
-    color: Colors.textMuted,
-  },
-  strategyDivider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginVertical: Spacing.md,
-  },
-  strategyButton: {
-    marginTop: Spacing.md,
-  },
-  activityCard: {
-    padding: Spacing.sm,
-  },
-  disclaimer: {
-    marginBottom: Spacing.lg,
-  },
+  screen: {flex: 1, backgroundColor: Colors.background},
+  header: {backgroundColor: '#092A23', paddingHorizontal: Spacing.lg, paddingBottom: 22, borderBottomLeftRadius: 28, borderBottomRightRadius: 28},
+  headerTop: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'},
+  eyebrow: {...Typography.label, color: '#65D8AD', letterSpacing: 1.3},
+  title: {fontSize: 30, fontWeight: '800', letterSpacing: -1, color: '#F4FFF9', marginTop: 2},
+  refreshButton: {width: 44, height: 44, borderRadius: 15, backgroundColor: '#123F34', alignItems: 'center', justifyContent: 'center'},
+  headerBody: {...Typography.body, color: '#9DC5B8', marginTop: 9, maxWidth: 340},
+  content: {padding: Spacing.md, paddingTop: 18},
+  freshnessRow: {flexDirection: 'row', alignItems: 'center'},
+  statusDot: {width: 8, height: 8, borderRadius: 4, marginRight: 7},
+  freshnessText: {...Typography.caption, color: Colors.textSecondary, flex: 1},
+  estimatedPill: {borderWidth: 1, borderColor: Colors.border, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 4},
+  estimatedText: {fontSize: 9, fontWeight: '800', letterSpacing: 0.8, color: Colors.textMuted},
+  sectionTitle: {...Typography.h3, color: Colors.text, marginTop: 24, marginBottom: 11},
+  actionCard: {flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border, padding: 15, marginBottom: 9, ...Shadows.sm},
+  actionIndex: {width: 32, height: 32, borderRadius: 12, backgroundColor: Colors.primaryFade, alignItems: 'center', justifyContent: 'center', marginRight: 12},
+  actionIndexText: {fontSize: 13, fontWeight: '800', color: Colors.primaryDark},
+  actionCopy: {flex: 1},
+  actionTitle: {...Typography.h4, color: Colors.text},
+  actionReason: {...Typography.caption, color: Colors.textSecondary, marginTop: 3},
+  forecastCard: {backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border, padding: 16, marginBottom: 10},
+  forecastTop: {flexDirection: 'row', alignItems: 'center'},
+  forecastCopy: {flex: 1},
+  forecastName: {...Typography.h4, color: Colors.text},
+  forecastCaption: {...Typography.caption, color: Colors.textMuted, marginTop: 2},
+  probability: {fontSize: 24, fontWeight: '800'},
+  barTrack: {height: 7, borderRadius: 7, backgroundColor: Colors.surfaceVariant, marginTop: 13, overflow: 'hidden'},
+  barFill: {height: 7, borderRadius: 7},
+  explanation: {...Typography.body, color: Colors.textSecondary, marginTop: 12},
+  range: {...Typography.caption, color: Colors.textMuted, marginTop: 7},
+  simulator: {backgroundColor: '#0A2B24', borderRadius: BorderRadius.xl, padding: 17},
+  segmented: {flexDirection: 'row', backgroundColor: '#143B33', borderRadius: 14, padding: 4},
+  segment: {flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 11},
+  segmentActive: {backgroundColor: Colors.surface},
+  segmentText: {...Typography.body, fontWeight: '700', color: '#9DC5B8'},
+  segmentTextActive: {color: Colors.text},
+  simLabel: {...Typography.caption, color: '#A8C9BE', marginTop: 17, marginBottom: 7},
+  amountRow: {height: 52, borderRadius: 14, backgroundColor: Colors.surface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14},
+  currency: {...Typography.label, color: Colors.textMuted, marginRight: 10},
+  amountInput: {flex: 1, fontSize: 22, fontWeight: '700', color: Colors.text, paddingVertical: 0},
+  simButton: {height: 48, borderRadius: 99, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 12},
+  simButtonText: {fontSize: 15, fontWeight: '700', color: Colors.textInverse},
+  disabled: {opacity: 0.45},
+  resultCard: {flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.successLight, borderRadius: 14, padding: 13, marginTop: 13},
+  resultCopy: {flex: 1, marginLeft: 11},
+  resultValue: {...Typography.h3, color: Colors.primaryDark},
+  resultLabel: {...Typography.caption, color: Colors.textSecondary, marginTop: 2},
+  scenarioMessage: {...Typography.caption, color: '#A8C9BE', marginTop: 10},
+  ad: {marginTop: 20},
+  nativeAd: {marginTop: 12},
 });
-
-export default InsightsScreen;

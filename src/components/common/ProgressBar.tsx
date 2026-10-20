@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
+import { Colors, Spacing, Typography } from '../../theme';
 
 interface ProgressBarProps {
   progress: number;
@@ -43,7 +43,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
     } else {
       animatedWidth.setValue(clampedProgress);
     }
-  }, [clampedProgress, animated]);
+  }, [clampedProgress, animated, animatedWidth]);
 
   const widthInterpolated = animatedWidth.interpolate({
     inputRange: [0, 100],

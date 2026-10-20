@@ -115,6 +115,9 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-dev"
+            resValue "string", "app_name", "Savings Tracker Dev"
         }
         release {
             // Caution! In production, you need to generate your own keystore file.

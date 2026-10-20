@@ -16,7 +16,6 @@ import {
 import {
   formatCurrency,
   formatDate,
-  formatMonths,
   formatDebtType,
   formatAPR,
   parseNumberSafe,
@@ -25,7 +24,6 @@ import { DEBT_STRATEGY_DESCRIPTIONS } from '../../data/strategies';
 import Card from '../../components/common/Card';
 import AppTextInput from '../../components/common/TextInput';
 import EmptyState from '../../components/common/EmptyState';
-import Disclaimer from '../../components/common/Disclaimer';
 import Badge from '../../components/common/Badge';
 import SafeScrollView from '../../components/layout/SafeScrollView';
 import BannerAdComponent from '../../components/ads/BannerAdComponent';
@@ -91,7 +89,6 @@ export default function DebtStrategyScreen(): React.JSX.Element {
             title="No Active Debts"
             description="Add a debt account to compare payoff strategies."
           />
-          <Disclaimer style={styles.bottomDisclaimer} />
         </View>
       </SafeScrollView>
     );
@@ -101,7 +98,6 @@ export default function DebtStrategyScreen(): React.JSX.Element {
     <SafeScrollView>
       <View style={styles.container}>
         <Text style={styles.headerTitle}>Compare Payoff Strategies</Text>
-        <Disclaimer compact style={styles.topDisclaimer} />
 
         {/* Extra payment input */}
         <Card style={styles.extraCard}>
@@ -294,7 +290,6 @@ export default function DebtStrategyScreen(): React.JSX.Element {
           </Card>
         ) : null}
 
-        <Disclaimer style={styles.bottomDisclaimer} />
       </View>
     </SafeScrollView>
   );

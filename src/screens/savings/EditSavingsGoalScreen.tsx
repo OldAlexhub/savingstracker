@@ -10,12 +10,14 @@ import {
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApp } from '../../context/AppContext';
+import {useUnsavedChanges} from '../../hooks/useUnsavedChanges';
 import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
 import { parseNumberSafe } from '../../utils/formatters';
 import { SAVINGS_STRATEGIES } from '../../data/strategies';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import AppTextInput from '../../components/common/TextInput';
+import DateField from '../../components/common/DateField';
 import KeyboardSafeScreen from '../../components/layout/KeyboardSafeScreen';
 import StickyActionBar from '../../components/layout/StickyActionBar';
 import type {
@@ -82,6 +84,18 @@ export default function EditSavingsGoalScreen(): React.JSX.Element {
   const [notes, setNotes] = useState(goal?.notes ?? '');
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  useUnsavedChanges(!saving && Boolean(goal) && (
+    name !== goal?.name ||
+    targetAmount !== goal?.targetAmount.toString() ||
+    startingAmount !== goal?.startingAmount.toString() ||
+    savedAmount !== goal?.savedAmount.toString() ||
+    targetDate !== goal?.targetDate ||
+    selectedStrategy !== goal?.strategyId ||
+    reminderEnabled !== (goal?.reminderEnabled ?? false) ||
+    reminderFrequency !== (goal?.reminderFrequency ?? 'weekly') ||
+    reminderTime !== (goal?.reminderTime ?? '09:00') ||
+    notes !== goal?.notes
+  ));
 
   useEffect(() => {
     if (!goal) {
@@ -240,6 +254,7 @@ export default function EditSavingsGoalScreen(): React.JSX.Element {
             placeholder="e.g. Vacation Fund"
             maxLength={100}
             error={errors.name}
+            helperText="Use a label only—do not enter a person’s name or account details."
           />
           <AppTextInput
             label="Target Amount *"
@@ -269,14 +284,13 @@ export default function EditSavingsGoalScreen(): React.JSX.Element {
             error={errors.savedAmount}
             helperText={`Minimum from contributions: $${contributionTotal.toFixed(2)}`}
           />
-          <AppTextInput
+          <DateField
             label="Target Date *"
             value={targetDate}
-            onChangeText={v => { setTargetDate(v); setErrors(p => ({ ...p, targetDate: undefined })); }}
-            placeholder="YYYY-MM-DD"
-            keyboardType="numeric"
+            onChange={v => { setTargetDate(v); setErrors(p => ({ ...p, targetDate: undefined })); }}
             error={errors.targetDate}
-            helperText="Format: YYYY-MM-DD (e.g. 2027-01-15)"
+            helperText="Choose when you want to reach this goal"
+            minimumDate={new Date(Date.now() + 86_400_000)}
           />
         </View>
 
@@ -325,6 +339,7 @@ export default function EditSavingsGoalScreen(): React.JSX.Element {
             multiline
             numberOfLines={4}
             maxLength={500}
+            helperText="Uploaded unchanged. Do not include personal or account information."
           />
         </View>
       </View>

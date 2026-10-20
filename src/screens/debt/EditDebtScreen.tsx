@@ -9,6 +9,7 @@ import {
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApp } from '../../context/AppContext';
+import {useUnsavedChanges} from '../../hooks/useUnsavedChanges';
 import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
 import { parseNumberSafe, formatDebtType } from '../../utils/formatters';
 import Card from '../../components/common/Card';
@@ -54,6 +55,16 @@ export default function EditDebtScreen(): React.JSX.Element {
   const [notes, setNotes] = useState(debt?.notes ?? '');
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  useUnsavedChanges(!saving && Boolean(debt) && (
+    name !== debt?.name ||
+    debtType !== debt?.debtType ||
+    originalBalance !== debt?.originalBalance.toString() ||
+    currentBalance !== debt?.currentBalance.toString() ||
+    apr !== (debt?.apr?.toString() ?? '') ||
+    minimumPayment !== (debt?.minimumPayment?.toString() ?? '') ||
+    dueDayOfMonth !== (debt?.dueDayOfMonth?.toString() ?? '') ||
+    notes !== debt?.notes
+  ));
 
   useEffect(() => {
     if (!debt) {
@@ -136,6 +147,7 @@ export default function EditDebtScreen(): React.JSX.Element {
             placeholder="e.g. Chase Visa Card"
             maxLength={100}
             error={errors.name}
+            helperText="Use a nickname only—never enter an account number or person’s name."
           />
         </View>
 
@@ -206,6 +218,7 @@ export default function EditDebtScreen(): React.JSX.Element {
             onChangeText={setNotes}
             placeholder="Optional notes..."
             multiline numberOfLines={3} maxLength={500}
+            helperText="Uploaded unchanged. Do not include personal or account information."
           />
         </View>
       </View>

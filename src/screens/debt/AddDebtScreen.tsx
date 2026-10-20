@@ -9,6 +9,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApp } from '../../context/AppContext';
+import {useUnsavedChanges} from '../../hooks/useUnsavedChanges';
 import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
 import { parseNumberSafe, formatDebtType } from '../../utils/formatters';
 import Card from '../../components/common/Card';
@@ -53,6 +54,9 @@ export default function AddDebtScreen(): React.JSX.Element {
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  useUnsavedChanges(!saving && Boolean(
+    name || originalBalance || currentBalance || apr || minimumPayment || dueDayOfMonth || notes || debtType !== 'credit_card',
+  ));
 
   function validate(): boolean {
     const errs: FormErrors = {};
@@ -124,6 +128,7 @@ export default function AddDebtScreen(): React.JSX.Element {
             placeholder="e.g. Chase Visa Card"
             maxLength={100}
             error={errors.name}
+            helperText="Use a nickname only—never enter an account number or person’s name."
           />
         </View>
 
@@ -222,6 +227,7 @@ export default function AddDebtScreen(): React.JSX.Element {
             multiline
             numberOfLines={3}
             maxLength={500}
+            helperText="Uploaded unchanged. Do not include personal or account information."
           />
         </View>
       </View>

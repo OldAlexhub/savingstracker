@@ -1,0 +1,33 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint -- --format compact
+      - run: npm test -- --runInBand
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=critical
+      - name: Signing and secret hygiene
+        shell: bash
+        run: |
+          test -z "$(git ls-files android/keystore.properties android/app/savings_tracker_release.keystore android/app/upload-keystore.jks)"
+          ! git grep -nE 'ADMIN_SEED_PASSWORD=.+|BEGIN (RSA |EC )?PRIVATE KEY' -- ':!*.example'
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug

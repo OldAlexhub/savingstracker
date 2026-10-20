@@ -4,20 +4,22 @@ import {
   Text,
   StyleSheet,
   Alert,
+  Modal,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApp } from '../../context/AppContext';
-import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../theme';
+import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
 import { formatCurrency, formatPercent, formatDate, formatDebtType, formatAPR, formatMonths } from '../../utils/formatters';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import ProgressBar from '../../components/common/ProgressBar';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import Badge from '../../components/common/Badge';
-import Disclaimer from '../../components/common/Disclaimer';
 import SafeScrollView from '../../components/layout/SafeScrollView';
 import StickyActionBar from '../../components/layout/StickyActionBar';
+import AppTextInput from '../../components/common/TextInput';
+import DateField from '../../components/common/DateField';
 import type { RootStackParamList } from '../../types/index';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -46,7 +48,7 @@ export default function DebtDetailScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const { debtId } = route.params;
-  const { data, deleteDebtAccount, archiveDebtAccount, deleteDebtPayment } = useApp();
+  const { data, deleteDebtAccount, archiveDebtAccount, deleteDebtPayment, updateDebtPayment } = useApp();
 
   const debt = data.debtAccounts.find(d => d.id === debtId);
   const payments = data.debtPayments.filter(p => p.debtId === debtId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -55,12 +57,17 @@ export default function DebtDetailScreen(): React.JSX.Element {
   const [deleteDebtConfirm, setDeleteDebtConfirm] = useState(false);
   const [deletePaymentId, setDeletePaymentId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const handleGoBack = useCallback(() => navigation.goBack(), [navigation]);
 
   if (!debt) {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorText}>Debt not found.</Text>
-        <Button title="Go Back" onPress={() => navigation.goBack()} variant="primary" />
+        <Button title="Go Back" onPress={handleGoBack} variant="primary" />
       </View>
     );
   }
@@ -79,7 +86,7 @@ export default function DebtDetailScreen(): React.JSX.Element {
 
   const badge = getStatusBadge(debt.status);
 
-  const handleDeleteDebt = useCallback(async () => {
+  const handleDeleteDebt = async () => {
     setDeleteDebtConfirm(false);
     setActionLoading(true);
     try {
@@ -90,9 +97,9 @@ export default function DebtDetailScreen(): React.JSX.Element {
     } finally {
       setActionLoading(false);
     }
-  }, [debtId, deleteDebtAccount, navigation]);
+  };
 
-  const handleDeletePayment = useCallback(async () => {
+  const handleDeletePayment = async () => {
     if (!deletePaymentId) return;
     try {
       await deleteDebtPayment(deletePaymentId);
@@ -101,9 +108,28 @@ export default function DebtDetailScreen(): React.JSX.Element {
     } finally {
       setDeletePaymentId(null);
     }
-  }, [deletePaymentId, deleteDebtPayment]);
+  };
 
-  const handleArchive = useCallback(async () => {
+  const openPaymentEditor = (id: string) => {
+    const payment = payments.find(item => item.id === id);
+    if (!payment) return;
+    setEditPaymentId(id);
+    setEditAmount(String(payment.amount));
+    setEditDate(payment.date);
+    setEditNotes(payment.notes);
+  };
+
+  const savePaymentEdit = async () => {
+    const amount = Number(editAmount);
+    if (!editPaymentId || !Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Check the amount', 'Enter an amount above zero.');
+      return;
+    }
+    await updateDebtPayment(editPaymentId, {amount, date: editDate, notes: editNotes.trim()});
+    setEditPaymentId(null);
+  };
+
+  const handleArchive = async () => {
     setActionLoading(true);
     try {
       await archiveDebtAccount(debtId);
@@ -112,7 +138,7 @@ export default function DebtDetailScreen(): React.JSX.Element {
     } finally {
       setActionLoading(false);
     }
-  }, [debtId, archiveDebtAccount]);
+  };
 
   return (
     <View style={styles.screen}>
@@ -218,7 +244,10 @@ export default function DebtDetailScreen(): React.JSX.Element {
                   {p.isMinimumPayment ? <Badge label="Min Payment" color={Colors.infoLight} textColor={Colors.info} size="sm" style={styles.minBadge} /> : null}
                   {p.notes ? <Text style={styles.paymentNote}>{p.notes}</Text> : null}
                 </View>
-                <Button title="Del" onPress={() => setDeletePaymentId(p.id)} variant="danger" size="sm" />
+                <View style={styles.historyActions}>
+                  <Button title="Edit" onPress={() => openPaymentEditor(p.id)} variant="outline" size="sm" />
+                  <Button title="Del" onPress={() => setDeletePaymentId(p.id)} variant="danger" size="sm" />
+                </View>
               </View>
             ))
           )}
@@ -232,7 +261,6 @@ export default function DebtDetailScreen(): React.JSX.Element {
           </Card>
         ) : null}
 
-        <Disclaimer compact style={styles.disclaimer} />
       </SafeScrollView>
 
       <StickyActionBar>
@@ -265,6 +293,20 @@ export default function DebtDetailScreen(): React.JSX.Element {
         onConfirm={handleDeletePayment}
         onCancel={() => setDeletePaymentId(null)}
       />
+      <Modal visible={editPaymentId !== null} transparent animationType="slide" onRequestClose={() => setEditPaymentId(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.editorSheet}>
+            <Text style={styles.editorTitle}>Edit payment</Text>
+            <AppTextInput label="Amount" value={editAmount} onChangeText={setEditAmount} keyboardType="decimal-pad" prefix={currency} />
+            <DateField label="Date" value={editDate} onChange={setEditDate} maximumDate={new Date()} />
+            <AppTextInput label="Notes" value={editNotes} onChangeText={setEditNotes} multiline numberOfLines={3} maxLength={500} helperText="Uploaded unchanged. Do not include personal information." />
+            <View style={styles.editorActions}>
+              <Button title="Cancel" onPress={() => setEditPaymentId(null)} variant="ghost" style={styles.editorButton} />
+              <Button title="Save changes" onPress={() => void savePaymentEdit()} style={styles.editorButton} />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -308,4 +350,10 @@ const styles = StyleSheet.create({
   disclaimer: { marginHorizontal: Spacing.md, marginBottom: Spacing.lg },
   actionRow: { flexDirection: 'row', gap: Spacing.sm },
   actionBtn: { flex: 1 },
+  historyActions: { flexDirection: 'row', gap: Spacing.xs },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(3,18,14,0.55)', justifyContent: 'flex-end' },
+  editorSheet: { backgroundColor: Colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: Spacing.lg, paddingBottom: 32 },
+  editorTitle: { ...Typography.h2, color: Colors.text, marginBottom: Spacing.md },
+  editorActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  editorButton: { flex: 1 },
 });

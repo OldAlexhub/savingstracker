@@ -1,737 +1,332 @@
-import React, { useState, useCallback } from 'react';
+import React, {useState} from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  Modal,
-  TouchableOpacity,
-  ScrollView,
   Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DeviceInfo from 'react-native-device-info';
+import {AdsConsent} from 'react-native-google-mobile-ads';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import { useApp } from '../context/AppContext';
-import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../theme';
-import { exportAllDataJSON, exportSavingsCSV, exportDebtsCSV, exportTextSummary } from '../utils/exports';
-import { SUPPORTED_CURRENCIES } from '../data/currencies';
-import type { Currency } from '../types';
-
-import Card from '../components/common/Card';
-import Button from '../components/common/Button';
 import ConfirmDialog from '../components/common/ConfirmDialog';
-import SectionHeader from '../components/common/SectionHeader';
-import Disclaimer from '../components/common/Disclaimer';
-import BannerAdComponent from '../components/ads/BannerAdComponent';
 import SafeScrollView from '../components/layout/SafeScrollView';
+import {useApp} from '../context/AppContext';
+import {SUPPORTED_CURRENCIES} from '../data/currencies';
+import {BorderRadius, Colors, Shadows, Spacing, Typography} from '../theme';
+import type {Currency} from '../types';
+import {
+  exportAllDataJSON,
+  exportDebtsCSV,
+  exportSavingsCSV,
+  exportTextSummary,
+} from '../utils/exports';
 
-const PRIVACY_POLICY_TEXT = `Privacy Policy — Savings Tracker by Old Alex Hub
+const PRIVACY_TEXT = `Savings Tracker data collection
 
-Last updated: 2025
+Savings Tracker works offline, but anonymous data collection is required for continued use. We upload your exact savings goals, debts, balances, APRs, target and activity dates, contribution and payment history, names, and notes to our service at tracking.server.oldalexhub.com. Names and notes are uploaded unchanged, so do not enter your name, account numbers, contact details, or other personal information. Free text cannot be guaranteed anonymous.
 
-1. INFORMATION WE COLLECT
-This app stores all data locally on your device. We do not collect, transmit, or store any personal financial information on external servers.
+We also collect an app-generated installation ID, manufacturer and model, Android version, app version, locale, timezone, screen class, app activity, sync diagnostics, and capability information. We do not collect IMEI, hardware serial, contacts, GPS location, email, phone number, or a first-party Advertising ID.
 
-2. DATA STORAGE
-All savings goals, debts, contributions, and preferences are stored exclusively on your device using local storage. You have full control over your data at all times.
+Data supports deterministic forecasts, risk detection, next-best actions, feature analytics, reliability monitoring, experiments, and aggregate model development. Device characteristics are excluded from financial recommendations. Google and its partners may process advertising data under your regional consent choices.
 
-3. ADVERTISING
-This app uses Google AdMob to display advertisements. AdMob may collect device identifiers and usage data to serve personalized ads. Please review Google's Privacy Policy at policies.google.com for details. You can opt out of personalized ads in your device settings under Privacy > Ads.
+Active finance snapshots are retained until you delete them or after 24 months of installation inactivity. Raw analytics are retained for 13 months. Non-reversible aggregate statistics may remain. Data is encrypted in transit; local finance data is encrypted with a key protected by Android Keystore. There is no account, cloud restore, or cross-device recovery.
 
-4. EXPORTS
-When you export data, files are saved to your device's storage. We do not receive copies of exported data.
+“Delete this installation” attempts to purge the current installation’s server records before clearing the device. It requires a connection so the app never discards the only deletion credential before the server confirms the purge.`;
 
-5. ANALYTICS
-We do not use analytics services that track individual user behavior beyond what AdMob collects.
+const DISCLAIMER_TEXT = `Savings Tracker provides educational calculations and estimates—not financial, investment, tax, legal, or credit advice. Forecasts, completion ranges, on-track probabilities, payoff dates, interest totals, risks, and next actions may be incomplete or inaccurate and are always labeled “Estimated.” Results depend on the information you enter and assumptions that may not match actual interest, fees, compounding, payment timing, income, or market conditions.
 
-6. CHILDREN'S PRIVACY
-This app is not directed at children under 13.
+You are responsible for financial decisions. Verify important calculations and consider a qualified professional before acting. Never delay required debt payments based on an app estimate.`;
 
-7. CHANGES
-We may update this policy. Continued use of the app constitutes acceptance of changes.
+interface SettingRowProps {
+  icon: string;
+  title: string;
+  subtitle: string;
+  onPress?: () => void;
+  tone?: 'normal' | 'danger';
+}
 
-8. CONTACT
-Questions? Contact us at: oldalexhub@gmail.com`;
-
-const ADS_DISCLOSURE_TEXT = `Ads Disclosure
-
-Savings Tracker is free to use and supported by advertising provided by Google AdMob.
-
-What this means for you:
-• Ads help keep this app free for everyone.
-• Google AdMob may collect device identifiers (like Advertising ID) for ad targeting purposes.
-• You may see personalized or non-personalized ads based on your device settings.
-
-How to opt out:
-• On Android: Settings > Privacy > Ads > Opt out of Ads Personalization
-• On iOS: Settings > Privacy > Apple Advertising > Limit Ad Tracking
-
-We respect your privacy. All your financial data stays on your device and is never shared with advertisers.`;
-
-const SettingsScreen: React.FC = () => {
-  const insets = useSafeAreaInsets();
-  const { data, updatePreferences, clearAllData } = useApp();
-
-  const [showCurrencyModal, setShowCurrencyModal] = useState(false);
-  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
-  const [showAdsModal, setShowAdsModal] = useState(false);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-
-  const [exportingJSON, setExportingJSON] = useState(false);
-  const [exportingCSVSavings, setExportingCSVSavings] = useState(false);
-  const [exportingCSVDebts, setExportingCSVDebts] = useState(false);
-  const [exportingText, setExportingText] = useState(false);
-  const [clearingData, setClearingData] = useState(false);
-
-  const currency = data.preferences.currency;
-  const currentCurrencyOption =
-    SUPPORTED_CURRENCIES.find(c => c.code === currency) ?? SUPPORTED_CURRENCIES[0];
-
-  // ── Currency ───────────────────────────────────────────────────────────────
-
-  const handleSelectCurrency = useCallback(
-    async (selected: Currency) => {
-      setShowCurrencyModal(false);
-      if (selected === currency) return;
-      try {
-        await updatePreferences({ currency: selected });
-      } catch {
-        Alert.alert('Error', 'Failed to update currency. Please try again.');
-      }
-    },
-    [currency, updatePreferences],
+function SettingRow({icon, title, subtitle, onPress, tone = 'normal'}: SettingRowProps) {
+  return (
+    <TouchableOpacity
+      accessibilityRole={onPress ? 'button' : undefined}
+      activeOpacity={onPress ? 0.75 : 1}
+      style={styles.settingRow}
+      onPress={onPress}>
+      <View style={[styles.settingIcon, tone === 'danger' && styles.dangerIcon]}>
+        <Icon name={icon} size={21} color={tone === 'danger' ? Colors.error : Colors.primaryDark} />
+      </View>
+      <View style={styles.settingCopy}>
+        <Text style={[styles.settingTitle, tone === 'danger' && styles.dangerText]}>{title}</Text>
+        <Text style={styles.settingSubtitle}>{subtitle}</Text>
+      </View>
+      {onPress ? <Icon name="chevron-right" size={22} color={Colors.textMuted} /> : null}
+    </TouchableOpacity>
   );
+}
 
-  // ── Exports ────────────────────────────────────────────────────────────────
+export default function SettingsScreen(): React.JSX.Element {
+  const insets = useSafeAreaInsets();
+  const {
+    data,
+    updatePreferences,
+    clearAllData,
+    syncStatus,
+    pendingSyncCount,
+    lastSyncedAt,
+    trackEvent,
+  } = useApp();
+  const [modal, setModal] = useState<'privacy' | 'disclaimer' | 'currency' | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
 
-  const handleExportJSON = useCallback(async () => {
-    setExportingJSON(true);
+  const chooseCurrency = async (currency: Currency) => {
+    await updatePreferences({currency});
+    setModal(null);
+  };
+
+  const chooseTheme = async (themeMode: 'system' | 'light' | 'dark') => {
+    await updatePreferences({themeMode});
+  };
+
+  const exportData = async (kind: 'json' | 'savings' | 'debts' | 'summary') => {
+    setExporting(kind);
     try {
-      await exportAllDataJSON(data, data.preferences);
-      Alert.alert('Success', 'All data exported as JSON backup.');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Export failed.';
-      Alert.alert('Export Error', msg);
+      if (kind === 'json') await exportAllDataJSON(data, data.preferences);
+      if (kind === 'savings') await exportSavingsCSV(data.savingsGoals, data.contributions, data.preferences);
+      if (kind === 'debts') await exportDebtsCSV(data.debtAccounts, data.debtPayments, data.preferences);
+      if (kind === 'summary') await exportTextSummary(data, data.preferences);
+      await trackEvent('export_completed', 'Settings', {type: kind});
+    } catch (reason) {
+      Alert.alert('Export unavailable', reason instanceof Error ? reason.message : 'Please try again.');
     } finally {
-      setExportingJSON(false);
+      setExporting(null);
     }
-  }, [data]);
+  };
 
-  const handleExportSavingsCSV = useCallback(async () => {
-    setExportingCSVSavings(true);
-    try {
-      await exportSavingsCSV(data.savingsGoals, data.contributions, data.preferences);
-      Alert.alert('Success', 'Savings data exported as CSV.');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Export failed.';
-      Alert.alert('Export Error', msg);
-    } finally {
-      setExportingCSVSavings(false);
-    }
-  }, [data]);
-
-  const handleExportDebtsCSV = useCallback(async () => {
-    setExportingCSVDebts(true);
-    try {
-      await exportDebtsCSV(data.debtAccounts, data.debtPayments, data.preferences);
-      Alert.alert('Success', 'Debt data exported as CSV.');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Export failed.';
-      Alert.alert('Export Error', msg);
-    } finally {
-      setExportingCSVDebts(false);
-    }
-  }, [data]);
-
-  const handleExportTextSummary = useCallback(async () => {
-    setExportingText(true);
-    try {
-      await exportTextSummary(data, data.preferences);
-      Alert.alert('Success', 'Summary report exported.');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Export failed.';
-      Alert.alert('Export Error', msg);
-    } finally {
-      setExportingText(false);
-    }
-  }, [data]);
-
-  // ── Clear Data ─────────────────────────────────────────────────────────────
-
-  const handleClearData = useCallback(async () => {
-    setShowClearConfirm(false);
-    setClearingData(true);
+  const deleteInstallation = async () => {
+    setConfirmDelete(false);
+    setDeleting(true);
     try {
       await clearAllData();
-      Alert.alert('Done', 'All data has been cleared.');
     } catch {
-      Alert.alert('Error', 'Failed to clear data. Please try again.');
-    } finally {
-      setClearingData(false);
-    }
-  }, [clearAllData]);
-
-  // ── Currency Modal ─────────────────────────────────────────────────────────
-
-  const renderCurrencyItem = useCallback(
-    ({ item }: { item: (typeof SUPPORTED_CURRENCIES)[number] }) => {
-      const isSelected = item.code === currency;
-      return (
-        <TouchableOpacity
-          style={[styles.currencyRow, isSelected && styles.currencyRowSelected]}
-          onPress={() => handleSelectCurrency(item.code)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.currencySymbolBubble}>
-            <Text style={styles.currencySymbol}>{item.code}</Text>
-          </View>
-          <View style={styles.currencyInfo}>
-            <Text style={styles.currencyCode}>{item.code}</Text>
-            <Text style={styles.currencyName}>{item.name}</Text>
-          </View>
-          {isSelected && <Text style={styles.currencyCheck}>✓</Text>}
-        </TouchableOpacity>
+      Alert.alert(
+        'Connect to finish deletion',
+        'Savings Tracker must confirm the server purge before it clears the anonymous installation token. Connect to the internet and try again.',
       );
-    },
-    [currency, handleSelectCurrency],
-  );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openAdChoices = async () => {
+    try {
+      await AdsConsent.showPrivacyOptionsForm();
+    } catch {
+      Alert.alert('Ad privacy choices', 'No regional ad privacy form is required for this device right now.');
+    }
+  };
+
+  const syncCopy = syncStatus === 'synced'
+    ? `Up to date${lastSyncedAt ? ` • ${new Date(lastSyncedAt).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}` : ''}`
+    : syncStatus === 'offline'
+      ? `Offline • ${pendingSyncCount} queued`
+      : syncStatus === 'syncing'
+        ? 'Sending encrypted updates…'
+        : `${pendingSyncCount} update${pendingSyncCount === 1 ? '' : 's'} queued`;
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
+      <View style={[styles.header, {paddingTop: insets.top + 12}]}>
+        <Text style={styles.eyebrow}>CONTROL CENTER</Text>
         <Text style={styles.headerTitle}>Settings</Text>
       </View>
 
-      <BannerAdComponent />
-
       <SafeScrollView>
         <View style={styles.content}>
-
-          {/* Preferences */}
-          <View style={styles.section}>
-            <SectionHeader title="Preferences" style={styles.sectionHeader} />
-            <Card style={styles.card}>
-              <TouchableOpacity
-                style={styles.settingRow}
-                onPress={() => setShowCurrencyModal(true)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Currency</Text>
-                  <Text style={styles.settingValue}>
-                    {currentCurrencyOption.code} - {currentCurrencyOption.name}
-                  </Text>
-                </View>
-                <Text style={styles.settingArrow}>›</Text>
-              </TouchableOpacity>
-              <View style={styles.settingDivider} />
-              <Text style={styles.settingNote}>
-                Currency affects how amounts are displayed throughout the app.
-              </Text>
-            </Card>
+          <Text style={styles.sectionLabel}>DATA & SYNC</Text>
+          <View style={styles.card}>
+            <SettingRow icon="cloud-check-outline" title="Anonymous sync" subtitle={syncCopy} />
+            <View style={styles.divider} />
+            <SettingRow
+              icon="server-security"
+              title="Analysis service"
+              subtitle="tracking.server.oldalexhub.com • required"
+            />
           </View>
 
-          {/* Export Data */}
-          <View style={styles.section}>
-            <SectionHeader title="Export Data" style={styles.sectionHeader} />
-            <Card style={styles.card}>
-              <View style={styles.exportRow}>
-                <View style={styles.exportInfo}>
-                  <Text style={styles.exportTitle}>Export All Data (JSON)</Text>
-                  <Text style={styles.exportDesc}>Full backup of all data</Text>
+          <Text style={styles.sectionLabel}>PREFERENCES</Text>
+          <View style={styles.card}>
+            <SettingRow
+              icon="currency-usd"
+              title="Display currency"
+              subtitle={`${data.preferences.currency} • amounts are never converted`}
+              onPress={() => setModal('currency')}
+            />
+            <View style={styles.divider} />
+            <View style={styles.themeRow}>
+              <View style={styles.settingIcon}><Icon name="theme-light-dark" size={21} color={Colors.primaryDark} /></View>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>Appearance</Text>
+                <View style={styles.themeOptions}>
+                  {(['system', 'light', 'dark'] as const).map(mode => (
+                    <TouchableOpacity
+                      key={mode}
+                      style={[styles.themeOption, data.preferences.themeMode === mode && styles.themeOptionActive]}
+                      onPress={() => void chooseTheme(mode)}>
+                      <Text style={[styles.themeOptionText, data.preferences.themeMode === mode && styles.themeOptionTextActive]}>
+                        {mode[0].toUpperCase() + mode.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-                <Button
-                  title="Export"
-                  onPress={handleExportJSON}
-                  variant="primary"
-                  size="sm"
-                  loading={exportingJSON}
-                  icon="📦"
-                />
               </View>
-
-              <View style={styles.exportDivider} />
-
-              <View style={styles.exportRow}>
-                <View style={styles.exportInfo}>
-                  <Text style={styles.exportTitle}>Export Savings (CSV)</Text>
-                  <Text style={styles.exportDesc}>Goals and contributions</Text>
-                </View>
-                <Button
-                  title="Export"
-                  onPress={handleExportSavingsCSV}
-                  variant="outline"
-                  size="sm"
-                  loading={exportingCSVSavings}
-                  icon="📊"
-                />
-              </View>
-
-              <View style={styles.exportDivider} />
-
-              <View style={styles.exportRow}>
-                <View style={styles.exportInfo}>
-                  <Text style={styles.exportTitle}>Export Debts (CSV)</Text>
-                  <Text style={styles.exportDesc}>Debt accounts and payments</Text>
-                </View>
-                <Button
-                  title="Export"
-                  onPress={handleExportDebtsCSV}
-                  variant="outline"
-                  size="sm"
-                  loading={exportingCSVDebts}
-                  icon="📊"
-                />
-              </View>
-
-              <View style={styles.exportDivider} />
-
-              <View style={styles.exportRow}>
-                <View style={styles.exportInfo}>
-                  <Text style={styles.exportTitle}>Export Summary (Text)</Text>
-                  <Text style={styles.exportDesc}>Human-readable report</Text>
-                </View>
-                <Button
-                  title="Export"
-                  onPress={handleExportTextSummary}
-                  variant="ghost"
-                  size="sm"
-                  loading={exportingText}
-                  icon="📄"
-                />
-              </View>
-            </Card>
+            </View>
           </View>
 
-          {/* About */}
-          <View style={styles.section}>
-            <SectionHeader title="About" style={styles.sectionHeader} />
-            <Card style={styles.card}>
-              <View style={styles.aboutRow}>
-                <Text style={styles.aboutLabel}>App Name</Text>
-                <Text style={styles.aboutValue}>Savings Tracker</Text>
-              </View>
-              <View style={styles.aboutDivider} />
-              <View style={styles.aboutRow}>
-                <Text style={styles.aboutLabel}>Version</Text>
-                <Text style={styles.aboutValue}>1.0.0</Text>
-              </View>
-              <View style={styles.aboutDivider} />
-              <View style={styles.aboutRow}>
-                <Text style={styles.aboutLabel}>Developer</Text>
-                <Text style={styles.aboutValue}>Old Alex Hub</Text>
-              </View>
-              <View style={styles.aboutDivider} />
-              <View style={styles.aboutButtonRow}>
-                <Button
-                  title="Privacy Policy"
-                  onPress={() => setShowPrivacyModal(true)}
-                  variant="ghost"
-                  size="sm"
-                  style={styles.aboutBtn}
-                />
-                <Button
-                  title="Ads Disclosure"
-                  onPress={() => setShowAdsModal(true)}
-                  variant="ghost"
-                  size="sm"
-                  style={styles.aboutBtn}
-                />
-              </View>
-            </Card>
+          <Text style={styles.sectionLabel}>YOUR DATA</Text>
+          <View style={styles.card}>
+            <SettingRow icon="database-export-outline" title="Export full JSON" subtitle={exporting === 'json' ? 'Preparing…' : 'Complete local backup'} onPress={() => void exportData('json')} />
+            <View style={styles.divider} />
+            <SettingRow icon="file-delimited-outline" title="Export savings CSV" subtitle={exporting === 'savings' ? 'Preparing…' : 'Goals and contributions'} onPress={() => void exportData('savings')} />
+            <View style={styles.divider} />
+            <SettingRow icon="file-delimited-outline" title="Export debt CSV" subtitle={exporting === 'debts' ? 'Preparing…' : 'Accounts and payment history'} onPress={() => void exportData('debts')} />
+            <View style={styles.divider} />
+            <SettingRow icon="file-document-outline" title="Export text summary" subtitle={exporting === 'summary' ? 'Preparing…' : 'A readable offline report'} onPress={() => void exportData('summary')} />
+            <View style={styles.divider} />
+            <SettingRow
+              icon="delete-forever-outline"
+              title={deleting ? 'Deleting installation…' : 'Delete this installation'}
+              subtitle="Purges server records, then this device"
+              tone="danger"
+              onPress={() => setConfirmDelete(true)}
+            />
           </View>
 
-          {/* Data Management */}
-          <View style={styles.section}>
-            <SectionHeader title="Data Management" style={styles.sectionHeader} />
-            <Card style={styles.card}>
-              <Text style={styles.dangerWarning}>
-                ⚠ This action permanently deletes all your data and cannot be undone.
-              </Text>
-              <Button
-                title="Clear All Data"
-                onPress={() => setShowClearConfirm(true)}
-                variant="danger"
-                size="md"
-                loading={clearingData}
-                icon="🗑"
-                style={styles.dangerButton}
-              />
-            </Card>
+          <Text style={styles.sectionLabel}>PRIVACY & GUIDANCE</Text>
+          <View style={styles.card}>
+            <SettingRow icon="shield-account-outline" title="Data collection & privacy" subtitle="What is collected, why, and for how long" onPress={() => setModal('privacy')} />
+            <View style={styles.divider} />
+            <SettingRow icon="advertisements-off" title="Ad privacy choices" subtitle="Regional Google consent and personalization options" onPress={() => void openAdChoices()} />
+            <View style={styles.divider} />
+            <SettingRow icon="scale-balance" title="Financial disclaimer" subtitle="Important limits of estimates and guidance" onPress={() => setModal('disclaimer')} />
           </View>
 
-          <Disclaimer style={styles.disclaimer} />
+          <View style={styles.disclaimerCard}>
+            <View style={styles.disclaimerHeader}>
+              <Icon name="information-outline" size={20} color={Colors.warning} />
+              <Text style={styles.disclaimerTitle}>Estimates, not advice</Text>
+            </View>
+            <Text style={styles.disclaimerPreview}>
+              Savings Tracker provides educational estimates only. Verify important calculations before making financial decisions.
+            </Text>
+            <TouchableOpacity onPress={() => setModal('disclaimer')}>
+              <Text style={styles.readMore}>Read the full disclaimer</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.version}>
+            Savings Tracker {DeviceInfo.getVersion()} ({DeviceInfo.getBuildNumber()}) • Old Alex Hub
+          </Text>
         </View>
       </SafeScrollView>
 
-      {/* Currency Modal */}
       <Modal
-        visible={showCurrencyModal}
-        animationType="slide"
+        visible={modal !== null}
         transparent
-        onRequestClose={() => setShowCurrencyModal(false)}
-      >
+        animationType="slide"
+        onRequestClose={() => setModal(null)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Currency</Text>
-              <TouchableOpacity
-                onPress={() => setShowCurrencyModal(false)}
-                style={styles.modalClose}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
+          <View style={[styles.sheet, {paddingBottom: Math.max(insets.bottom, 16)}]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>
+                {modal === 'privacy' ? 'Data collection & privacy' : modal === 'disclaimer' ? 'Financial disclaimer' : 'Display currency'}
+              </Text>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setModal(null)}>
+                <Icon name="close" size={22} color={Colors.text} />
               </TouchableOpacity>
             </View>
-            <FlatList
-              data={SUPPORTED_CURRENCIES}
-              keyExtractor={item => item.code}
-              renderItem={renderCurrencyItem}
-              style={styles.currencyList}
-              ItemSeparatorComponent={() => <View style={styles.currencyDivider} />}
-            />
+            {modal === 'currency' ? (
+              <ScrollView style={styles.sheetScroll}>
+                {SUPPORTED_CURRENCIES.map(item => (
+                  <TouchableOpacity
+                    key={item.code}
+                    style={styles.currencyRow}
+                    onPress={() => void chooseCurrency(item.code)}>
+                    <View style={styles.currencyCode}><Text style={styles.currencyCodeText}>{item.code}</Text></View>
+                    <Text style={styles.currencyName}>{item.name}</Text>
+                    {data.preferences.currency === item.code ? <Icon name="check-circle" size={22} color={Colors.primary} /> : null}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.policyContent}>
+                <Text style={styles.policyText}>{modal === 'privacy' ? PRIVACY_TEXT : DISCLAIMER_TEXT}</Text>
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
 
-      {/* Privacy Policy Modal */}
-      <Modal
-        visible={showPrivacyModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowPrivacyModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Privacy Policy</Text>
-              <TouchableOpacity
-                onPress={() => setShowPrivacyModal(false)}
-                style={styles.modalClose}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              style={styles.policyScroll}
-              contentContainerStyle={styles.policyContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <Text style={styles.policyText}>{PRIVACY_POLICY_TEXT}</Text>
-            </ScrollView>
-            <View style={styles.modalFooter}>
-              <Button
-                title="Close"
-                onPress={() => setShowPrivacyModal(false)}
-                variant="primary"
-                size="md"
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Ads Disclosure Modal */}
-      <Modal
-        visible={showAdsModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowAdsModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Ads Disclosure</Text>
-              <TouchableOpacity
-                onPress={() => setShowAdsModal(false)}
-                style={styles.modalClose}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              style={styles.policyScroll}
-              contentContainerStyle={styles.policyContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <Text style={styles.policyText}>{ADS_DISCLOSURE_TEXT}</Text>
-            </ScrollView>
-            <View style={styles.modalFooter}>
-              <Button
-                title="Got It"
-                onPress={() => setShowAdsModal(false)}
-                variant="primary"
-                size="md"
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Clear All Data Confirm */}
       <ConfirmDialog
-        visible={showClearConfirm}
-        title="Clear All Data?"
-        message="This will permanently delete all your savings goals, contributions, debts, and payment history. This action cannot be undone. Are you sure?"
-        confirmLabel="Yes, Delete Everything"
-        cancelLabel="Cancel"
+        visible={confirmDelete}
+        title="Delete this installation?"
+        message="While connected, Savings Tracker will permanently purge this installation’s raw server records and then erase the encrypted local data. This cannot be undone or restored."
+        confirmLabel="Delete everywhere"
+        cancelLabel="Keep my data"
         destructive
-        onConfirm={handleClearData}
-        onCancel={() => setShowClearConfirm(false)}
+        onConfirm={() => void deleteInstallation()}
+        onCancel={() => setConfirmDelete(false)}
       />
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  headerTitle: {
-    ...Typography.h3,
-    color: Colors.text,
-  },
-  content: {
-    padding: Spacing.md,
-  },
-  section: {
-    marginBottom: Spacing.lg,
-  },
-  sectionHeader: {
-    marginBottom: Spacing.sm,
-  },
-  card: {
-    padding: Spacing.md,
-  },
-
-  // Settings Row
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: Spacing.xs,
-  },
-  settingInfo: {
-    flex: 1,
-  },
-  settingLabel: {
-    ...Typography.label,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  settingValue: {
-    ...Typography.body,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  settingArrow: {
-    fontSize: 22,
-    color: Colors.textMuted,
-    fontWeight: '700',
-  },
-  settingDivider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginVertical: Spacing.sm,
-  },
-  settingNote: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-    fontStyle: 'italic',
-  },
-
-  // Export Rows
-  exportRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.xs,
-  },
-  exportInfo: {
-    flex: 1,
-    marginRight: Spacing.sm,
-  },
-  exportTitle: {
-    ...Typography.body,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  exportDesc: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-  },
-  exportDivider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginVertical: Spacing.sm,
-  },
-
-  // About
-  aboutRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Spacing.xs,
-  },
-  aboutLabel: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-  },
-  aboutValue: {
-    ...Typography.body,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  aboutDivider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginVertical: Spacing.sm,
-  },
-  aboutButtonRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  aboutBtn: {
-    flex: 1,
-  },
-
-  // Data Management
-  dangerWarning: {
-    ...Typography.body,
-    color: Colors.warning,
-    backgroundColor: Colors.warningLight,
-    padding: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.md,
-  },
-  dangerButton: {
-    width: '100%',
-  },
-
-  // Disclaimer
-  disclaimer: {
-    marginBottom: Spacing.xl,
-  },
-
-  // Modal Overlay
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    maxHeight: '80%',
-    ...Shadows.lg,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  modalTitle: {
-    ...Typography.h4,
-    color: Colors.text,
-  },
-  modalClose: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: BorderRadius.round,
-    backgroundColor: Colors.surfaceVariant,
-  },
-  modalCloseText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  modalFooter: {
-    padding: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-
-  // Currency List
-  currencyList: {
-    maxHeight: 360,
-  },
-  currencyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-  },
-  currencyRowSelected: {
-    backgroundColor: Colors.primaryFade,
-  },
-  currencySymbolBubble: {
-    width: 52,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primaryFade,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: Spacing.md,
-  },
-  currencySymbol: {
-    ...Typography.label,
-    color: Colors.primary,
-  },
-  currencyInfo: {
-    flex: 1,
-  },
-  currencyCode: {
-    ...Typography.body,
-    color: Colors.text,
-    fontWeight: '600',
-  },
-  currencyName: {
-    ...Typography.caption,
-    color: Colors.textMuted,
-  },
-  currencyCheck: {
-    fontSize: 18,
-    color: Colors.primary,
-    fontWeight: '700',
-  },
-  currencyDivider: {
-    height: 1,
-    backgroundColor: Colors.divider,
-    marginHorizontal: Spacing.md,
-  },
-
-  // Policy
-  policyScroll: {
-    flexGrow: 0,
-  },
-  policyContent: {
-    padding: Spacing.md,
-  },
-  policyText: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    lineHeight: 22,
-  },
+  screen: {flex: 1, backgroundColor: Colors.background},
+  header: {backgroundColor: '#092A23', paddingHorizontal: Spacing.lg, paddingBottom: 22, borderBottomLeftRadius: 28, borderBottomRightRadius: 28},
+  eyebrow: {...Typography.label, color: '#65D8AD', letterSpacing: 1.3},
+  headerTitle: {fontSize: 30, fontWeight: '800', letterSpacing: -1, color: '#F4FFF9', marginTop: 2},
+  content: {padding: Spacing.md, paddingTop: 10},
+  sectionLabel: {fontSize: 10, fontWeight: '800', letterSpacing: 1.3, color: Colors.textMuted, marginTop: 22, marginBottom: 8, marginLeft: 4},
+  card: {backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.lg, overflow: 'hidden', ...Shadows.sm},
+  settingRow: {minHeight: 74, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 12},
+  settingIcon: {width: 40, height: 40, borderRadius: 14, backgroundColor: Colors.primaryFade, alignItems: 'center', justifyContent: 'center', marginRight: 12},
+  dangerIcon: {backgroundColor: Colors.errorLight},
+  settingCopy: {flex: 1},
+  settingTitle: {...Typography.body, fontWeight: '700', color: Colors.text},
+  settingSubtitle: {...Typography.caption, color: Colors.textMuted, marginTop: 2},
+  dangerText: {color: Colors.error},
+  divider: {height: 1, backgroundColor: Colors.divider, marginLeft: 67},
+  themeRow: {flexDirection: 'row', paddingHorizontal: 15, paddingVertical: 14},
+  themeOptions: {flexDirection: 'row', backgroundColor: Colors.surfaceVariant, padding: 3, borderRadius: 12, marginTop: 8},
+  themeOption: {flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 9},
+  themeOptionActive: {backgroundColor: Colors.surface},
+  themeOptionText: {fontSize: 11, fontWeight: '600', color: Colors.textMuted},
+  themeOptionTextActive: {color: Colors.primaryDark},
+  disclaimerCard: {borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.warningLight, borderRadius: BorderRadius.lg, padding: 16, marginTop: 22},
+  disclaimerHeader: {flexDirection: 'row', alignItems: 'center', gap: 8},
+  disclaimerTitle: {...Typography.h4, color: Colors.text},
+  disclaimerPreview: {...Typography.body, color: Colors.textSecondary, marginTop: 8},
+  readMore: {...Typography.body, fontWeight: '700', color: Colors.warning, marginTop: 9},
+  version: {...Typography.caption, color: Colors.textMuted, textAlign: 'center', marginVertical: 24},
+  modalOverlay: {flex: 1, backgroundColor: 'rgba(3, 18, 14, 0.58)', justifyContent: 'flex-end'},
+  sheet: {maxHeight: '88%', minHeight: '42%', backgroundColor: Colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28},
+  sheetHandle: {width: 42, height: 5, borderRadius: 3, backgroundColor: Colors.border, alignSelf: 'center', marginTop: 9},
+  sheetHeader: {flexDirection: 'row', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: Colors.divider},
+  sheetTitle: {...Typography.h3, color: Colors.text, flex: 1},
+  closeButton: {width: 38, height: 38, borderRadius: 14, backgroundColor: Colors.surfaceVariant, alignItems: 'center', justifyContent: 'center'},
+  sheetScroll: {flexGrow: 0},
+  policyContent: {padding: 18, paddingBottom: 28},
+  policyText: {...Typography.body, color: Colors.textSecondary, lineHeight: 23},
+  currencyRow: {height: 62, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: Colors.divider},
+  currencyCode: {width: 50, height: 34, borderRadius: 11, backgroundColor: Colors.primaryFade, alignItems: 'center', justifyContent: 'center', marginRight: 12},
+  currencyCodeText: {fontSize: 11, fontWeight: '800', color: Colors.primaryDark},
+  currencyName: {...Typography.body, color: Colors.text, flex: 1},
 });
-
-export default SettingsScreen;

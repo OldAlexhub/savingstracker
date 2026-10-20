@@ -4,10 +4,13 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useApp } from '../../context/AppContext';
+import {useUnsavedChanges} from '../../hooks/useUnsavedChanges';
+import {useCompletionInterstitial} from '../../hooks/useCompletionInterstitial';
 import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
 import { formatCurrency, parseNumberSafe } from '../../utils/formatters';
 import Button from '../../components/common/Button';
 import AppTextInput from '../../components/common/TextInput';
+import DateField from '../../components/common/DateField';
 import Card from '../../components/common/Card';
 import EmptyState from '../../components/common/EmptyState';
 import KeyboardSafeScreen from '../../components/layout/KeyboardSafeScreen';
@@ -21,6 +24,7 @@ const LogDebtPaymentScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'LogDebtPayment'>>();
   const { data, addDebtPayment } = useApp();
+  const {showIfEligible} = useCompletionInterstitial();
 
   const activeDebts = useMemo(
     () => data.debtAccounts.filter(d => d.status === 'active'),
@@ -34,6 +38,9 @@ const LogDebtPaymentScreen: React.FC = () => {
   const [isMinimumPayment, setIsMinimumPayment] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  useUnsavedChanges(!saving && Boolean(
+    amount || notes || isMinimumPayment || date !== new Date().toISOString().split('T')[0],
+  ));
 
   const selectedDebt = activeDebts.find(d => d.id === selectedDebtId);
   const currency = data.preferences.currency;
@@ -67,8 +74,11 @@ const LogDebtPaymentScreen: React.FC = () => {
         notes: notes.trim(),
         isMinimumPayment,
       });
-      Alert.alert('Payment Logged', 'Your debt payment has been recorded.');
-      navigation.goBack();
+      Alert.alert(
+        'Payment Logged',
+        'Your debt payment has been recorded.',
+        [{text: 'Done', onPress: () => { showIfEligible(); navigation.goBack(); }}],
+      );
     } catch {
       Alert.alert('Error', 'Failed to log payment. Please try again.');
     } finally {
@@ -158,13 +168,13 @@ const LogDebtPaymentScreen: React.FC = () => {
           <Text style={styles.checkboxLabel}>This covers my minimum payment</Text>
         </TouchableOpacity>
 
-        <AppTextInput
+        <DateField
           label="Date *"
           value={date}
-          onChangeText={setDate}
-          placeholder="YYYY-MM-DD"
+          onChange={setDate}
           error={errors.date}
-          helperText="Format: YYYY-MM-DD (e.g. 2026-06-29)"
+          helperText="Payment date"
+          maximumDate={new Date()}
         />
         <AppTextInput
           label="Notes (optional)"
@@ -174,6 +184,7 @@ const LogDebtPaymentScreen: React.FC = () => {
           multiline
           numberOfLines={2}
           maxLength={200}
+          helperText="Uploaded unchanged. Do not include personal or account information."
         />
         <View style={{ height: 100 }} />
       </View>

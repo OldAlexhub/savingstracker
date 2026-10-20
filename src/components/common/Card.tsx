@@ -40,7 +40,9 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
-    ...Shadows.md,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    ...Shadows.sm,
   },
 });
 

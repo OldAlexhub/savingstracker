@@ -1,12 +1,14 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, {useCallback} from 'react';
+import {BackHandler, StyleSheet} from 'react-native';
+import {NavigationContainer, useFocusEffect, useNavigation} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import {createBottomTabNavigator, type BottomTabNavigationProp} from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import type { RootStackParamList, MainTabParamList } from '../types';
 import { bottomInsetWithFallback } from '../utils/safeArea';
+import {Colors} from '../theme';
 
 import DashboardScreen from '../screens/DashboardScreen';
 import SavingsScreen from '../screens/SavingsScreen';
@@ -40,23 +42,44 @@ const TAB_ICONS: Record<keyof MainTabParamList, string> = {
 function MainTabs() {
   const insets = useSafeAreaInsets();
   const bottomInset = bottomInsetWithFallback(insets.bottom);
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        const index = navigation.getState().index;
+        if (index !== 0) {
+          navigation.navigate('Dashboard');
+        }
+        return true;
+      });
+      return () => subscription.remove();
+    }, [navigation]),
+  );
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: '#2E7D32',
-        tabBarInactiveTintColor: '#9E9E9E',
-        tabBarIcon: ({ color, size }) => (
-          <Icon name={TAB_ICONS[route.name]} size={size ?? 22} color={color} />
+        tabBarActiveTintColor: Colors.primary,
+        tabBarInactiveTintColor: Colors.tabInactive,
+        tabBarHideOnKeyboard: true,
+        tabBarIcon: ({ color, focused }) => (
+          <Icon name={TAB_ICONS[route.name]} size={focused ? 24 : 22} color={color} />
         ),
+        tabBarLabelStyle: styles.tabLabel,
+        tabBarItemStyle: styles.tabItem,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#E2E8F0',
+          backgroundColor: Colors.surface,
+          borderTopColor: Colors.border,
           borderTopWidth: 1,
-          height: 60 + bottomInset,
+          height: 66 + bottomInset,
           paddingBottom: bottomInset,
-          paddingTop: 8,
+          paddingTop: 7,
+          elevation: 14,
+          shadowColor: '#12352B',
+          shadowOpacity: 0.08,
+          shadowRadius: 12,
         },
       })}
     >
@@ -68,7 +91,7 @@ function MainTabs() {
       <Tab.Screen
         name="Savings"
         component={SavingsScreen}
-        options={{ tabBarLabel: 'Savings' }}
+        options={{ tabBarLabel: 'Goals' }}
       />
       <Tab.Screen
         name="Debt"
@@ -94,10 +117,11 @@ export default function AppNavigation() {
     <NavigationContainer>
       <Stack.Navigator
         screenOptions={{
-          headerStyle: { backgroundColor: '#2E7D32' },
+          headerStyle: { backgroundColor: '#0A2B24' },
           headerTintColor: '#FFFFFF',
           headerTitleStyle: { fontWeight: '600' },
-          contentStyle: { backgroundColor: '#F5F7FA' },
+          contentStyle: { backgroundColor: Colors.background },
+          animation: 'slide_from_right',
         }}
       >
         <Stack.Screen
@@ -161,3 +185,8 @@ export default function AppNavigation() {
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  tabLabel: {fontSize: 10, fontWeight: '600', marginTop: 1},
+  tabItem: {paddingTop: 1},
+});

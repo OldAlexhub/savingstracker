@@ -1,43 +1,58 @@
+import 'react-native-get-random-values';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
+import * as Keychain from 'react-native-keychain';
+import {createMMKV, type MMKV} from 'react-native-mmkv';
+import {v4 as uuidv4} from 'uuid';
+
+import type {
+  AdState,
+  AnalyticsEvent,
+  AnalyticsEventName,
   AppData,
-  SavingsGoal,
-  SavingsContribution,
   DebtAccount,
   DebtPayment,
-  UserPreferences,
-  AdState,
   ExportRecord,
-} from '../types/index';
+  SavingsContribution,
+  SavingsGoal,
+  SyncOutboxItem,
+  UserPreferences,
+} from '../types';
 
-// ─── Storage Keys ────────────────────────────────────────────────────────────
+const ENVELOPE_KEY = 'finance-envelope';
+const ENVELOPE_SCHEMA_VERSION = 2;
+const MMKV_ID = 'savings-tracker-secure-v2';
+const KEYCHAIN_SERVICE = 'com.oldalexhub.savingstracker.storage-key.v2';
 
-const STORAGE_KEYS = {
-  SAVINGS_GOALS: '@savings_tracker/savings_goals',
-  CONTRIBUTIONS: '@savings_tracker/contributions',
-  DEBT_ACCOUNTS: '@savings_tracker/debt_accounts',
-  DEBT_PAYMENTS: '@savings_tracker/debt_payments',
-  PREFERENCES: '@savings_tracker/preferences',
-  AD_STATE: '@savings_tracker/ad_state',
-  EXPORT_RECORDS: '@savings_tracker/export_records',
+const LEGACY_KEYS = {
+  savingsGoals: '@savings_tracker/savings_goals',
+  contributions: '@savings_tracker/contributions',
+  debtAccounts: '@savings_tracker/debt_accounts',
+  debtPayments: '@savings_tracker/debt_payments',
+  preferences: '@savings_tracker/preferences',
+  adState: '@savings_tracker/ad_state',
+  exportRecords: '@savings_tracker/export_records',
 } as const;
 
-// ─── Defaults ────────────────────────────────────────────────────────────────
-
-const DEFAULT_PREFERENCES: UserPreferences = {
+export const DEFAULT_PREFERENCES: UserPreferences = {
   currency: 'USD',
   defaultSavingsStrategy: 'fixed_monthly',
   defaultDebtStrategy: 'avalanche',
   lastExportDate: null,
+  themeMode: 'system',
+  dataCollectionAcceptedAt: null,
+  dataDisclosureVersion: null,
 };
 
-const DEFAULT_AD_STATE: AdState = {
+export const DEFAULT_AD_STATE: AdState = {
   lastInterstitialShownAt: null,
   interstitialShowCount: 0,
   appOpenCount: 0,
+  dailyInterstitialCount: 0,
+  dailyInterstitialDate: null,
 };
 
-const DEFAULT_APP_DATA: AppData = {
+export const DEFAULT_APP_DATA: AppData = {
   savingsGoals: [],
   contributions: [],
   debtAccounts: [],
@@ -47,231 +62,405 @@ const DEFAULT_APP_DATA: AppData = {
   exportRecords: [],
 };
 
-// ─── ID Generation ───────────────────────────────────────────────────────────
-
-export function generateId(): string {
-  const timestamp = Date.now().toString(36);
-  const randomPart = Math.random().toString(36).slice(2, 11);
-  const extra = Math.random().toString(36).slice(2, 6);
-  return `${timestamp}-${randomPart}-${extra}`;
+interface StorageEnvelope {
+  schemaVersion: 2;
+  snapshotVersion: number;
+  data: AppData;
+  outbox: SyncOutboxItem[];
+  migratedAt: string | null;
+  legacyCheckpointVerified: boolean;
 }
 
-// ─── JSON Helpers ─────────────────────────────────────────────────────────────
+export interface MutationEvent {
+  name: AnalyticsEventName;
+  appVersion: string;
+  screen?: string;
+  properties?: Record<string, string | number | boolean | null>;
+}
 
-async function readJSON<T>(key: string, fallback: T): Promise<T> {
+let storagePromise: Promise<MMKV> | null = null;
+let operationQueue: Promise<void> = Promise.resolve();
+
+export function generateId(): string {
+  return uuidv4();
+}
+
+function cloneDefaults(): AppData {
+  return {
+    ...DEFAULT_APP_DATA,
+    preferences: {...DEFAULT_PREFERENCES},
+    adState: {...DEFAULT_AD_STATE},
+  };
+}
+
+function normalizeData(value: Partial<AppData> | null | undefined): AppData {
+  const defaults = cloneDefaults();
+  if (!value) {
+    return defaults;
+  }
+  return {
+    savingsGoals: Array.isArray(value.savingsGoals) ? value.savingsGoals : [],
+    contributions: Array.isArray(value.contributions) ? value.contributions : [],
+    debtAccounts: Array.isArray(value.debtAccounts) ? value.debtAccounts : [],
+    debtPayments: Array.isArray(value.debtPayments) ? value.debtPayments : [],
+    preferences: {...DEFAULT_PREFERENCES, ...(value.preferences ?? {})},
+    adState: {...DEFAULT_AD_STATE, ...(value.adState ?? {})},
+    exportRecords: Array.isArray(value.exportRecords) ? value.exportRecords : [],
+  };
+}
+
+function parseJSON<T>(raw: string | null | undefined, fallback: T): T {
+  if (!raw) {
+    return fallback;
+  }
   try {
-    const raw = await AsyncStorage.getItem(key);
-    if (raw === null) {
-      return fallback;
-    }
     return JSON.parse(raw) as T;
-  } catch (err) {
-    console.warn(`[DB] Failed to read key "${key}":`, err);
+  } catch {
     return fallback;
   }
 }
 
-async function writeJSON<T>(key: string, value: T): Promise<void> {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.warn(`[DB] Failed to write key "${key}":`, err);
+async function getEncryptionKey(): Promise<string> {
+  const existing = await Keychain.getGenericPassword({service: KEYCHAIN_SERVICE});
+  if (existing) {
+    return existing.password;
   }
+
+  const key = uuidv4().replace(/-/g, '');
+  const stored = await Keychain.setGenericPassword('storage', key, {
+    service: KEYCHAIN_SERVICE,
+    securityLevel: Keychain.SECURITY_LEVEL.SECURE_SOFTWARE,
+    accessible: Keychain.ACCESSIBLE.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+  });
+  if (!stored) {
+    throw new Error('Android Keystore could not protect the local encryption key.');
+  }
+  return key;
 }
 
-// ─── Load / Save All ─────────────────────────────────────────────────────────
+async function readLegacyData(): Promise<AppData> {
+  const pairs = await AsyncStorage.multiGet(Object.values(LEGACY_KEYS));
+  const lookup = new Map(pairs);
+  return normalizeData({
+    savingsGoals: parseJSON<SavingsGoal[]>(lookup.get(LEGACY_KEYS.savingsGoals), []),
+    contributions: parseJSON<SavingsContribution[]>(lookup.get(LEGACY_KEYS.contributions), []),
+    debtAccounts: parseJSON<DebtAccount[]>(lookup.get(LEGACY_KEYS.debtAccounts), []),
+    debtPayments: parseJSON<DebtPayment[]>(lookup.get(LEGACY_KEYS.debtPayments), []),
+    preferences: parseJSON<UserPreferences>(lookup.get(LEGACY_KEYS.preferences), DEFAULT_PREFERENCES),
+    adState: parseJSON<AdState>(lookup.get(LEGACY_KEYS.adState), DEFAULT_AD_STATE),
+    exportRecords: parseJSON<ExportRecord[]>(lookup.get(LEGACY_KEYS.exportRecords), []),
+  });
+}
+
+function createEnvelope(data: AppData, migratedAt: string | null): StorageEnvelope {
+  return {
+    schemaVersion: ENVELOPE_SCHEMA_VERSION,
+    snapshotVersion: 0,
+    data: normalizeData(data),
+    outbox: [],
+    migratedAt,
+    legacyCheckpointVerified: true,
+  };
+}
+
+function readEnvelope(storage: MMKV): StorageEnvelope {
+  const parsed = parseJSON<StorageEnvelope | null>(storage.getString(ENVELOPE_KEY), null);
+  if (!parsed || parsed.schemaVersion !== ENVELOPE_SCHEMA_VERSION) {
+    return createEnvelope(cloneDefaults(), null);
+  }
+  return {
+    ...parsed,
+    data: normalizeData(parsed.data),
+    outbox: Array.isArray(parsed.outbox) ? parsed.outbox : [],
+  };
+}
+
+function writeEnvelope(storage: MMKV, envelope: StorageEnvelope): void {
+  storage.set(ENVELOPE_KEY, JSON.stringify(envelope));
+}
+
+async function initializeStorage(): Promise<MMKV> {
+  const encryptionKey = await getEncryptionKey();
+  const storage = createMMKV({
+    id: MMKV_ID,
+    encryptionKey,
+    encryptionType: 'AES-256',
+    compareBeforeSet: true,
+    recoveryStrategy: 'recover-on-error',
+  });
+
+  if (!storage.contains(ENVELOPE_KEY)) {
+    const legacyData = await readLegacyData();
+    const envelope = createEnvelope(legacyData, new Date().toISOString());
+    writeEnvelope(storage, envelope);
+
+    const verified = readEnvelope(storage);
+    const expectedCounts = [
+      legacyData.savingsGoals.length,
+      legacyData.contributions.length,
+      legacyData.debtAccounts.length,
+      legacyData.debtPayments.length,
+    ];
+    const actualCounts = [
+      verified.data.savingsGoals.length,
+      verified.data.contributions.length,
+      verified.data.debtAccounts.length,
+      verified.data.debtPayments.length,
+    ];
+    if (expectedCounts.some((count, index) => count !== actualCounts[index])) {
+      storage.remove(ENVELOPE_KEY);
+      throw new Error('Existing data could not be verified after secure migration.');
+    }
+    // Legacy keys intentionally remain as a reversible migration checkpoint.
+  }
+  return storage;
+}
+
+async function getStorage(): Promise<MMKV> {
+  storagePromise ??= initializeStorage();
+  return storagePromise;
+}
+
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const current = operationQueue.then(task, task);
+  operationQueue = current.then(
+    () => undefined,
+    () => undefined,
+  );
+  return current;
+}
+
+function toAnalyticsEvent(input: MutationEvent): AnalyticsEvent {
+  return {
+    eventId: generateId(),
+    name: input.name,
+    clientTimestamp: new Date().toISOString(),
+    appVersion: input.appVersion,
+    screen: input.screen,
+    properties: input.properties,
+  };
+}
+
+function snapshotPayload(data: AppData, snapshotVersion: number, appVersion: string) {
+  return {
+    schemaVersion: 1,
+    snapshotVersion,
+    clientTimestamp: new Date().toISOString(),
+    appVersion,
+    currency: data.preferences.currency,
+    savingsGoals: data.savingsGoals,
+    contributions: data.contributions,
+    debtAccounts: data.debtAccounts,
+    debtPayments: data.debtPayments,
+  };
+}
 
 export async function loadAllData(): Promise<AppData> {
-  try {
-    const [
-      savingsGoals,
-      contributions,
-      debtAccounts,
-      debtPayments,
-      preferences,
-      adState,
-      exportRecords,
-    ] = await Promise.all([
-      readJSON<SavingsGoal[]>(STORAGE_KEYS.SAVINGS_GOALS, []),
-      readJSON<SavingsContribution[]>(STORAGE_KEYS.CONTRIBUTIONS, []),
-      readJSON<DebtAccount[]>(STORAGE_KEYS.DEBT_ACCOUNTS, []),
-      readJSON<DebtPayment[]>(STORAGE_KEYS.DEBT_PAYMENTS, []),
-      readJSON<UserPreferences>(STORAGE_KEYS.PREFERENCES, DEFAULT_PREFERENCES),
-      readJSON<AdState>(STORAGE_KEYS.AD_STATE, DEFAULT_AD_STATE),
-      readJSON<ExportRecord[]>(STORAGE_KEYS.EXPORT_RECORDS, []),
-    ]);
+  await operationQueue;
+  return normalizeData(readEnvelope(await getStorage()).data);
+}
 
-    return {
-      savingsGoals: Array.isArray(savingsGoals) ? savingsGoals : [],
-      contributions: Array.isArray(contributions) ? contributions : [],
-      debtAccounts: Array.isArray(debtAccounts) ? debtAccounts : [],
-      debtPayments: Array.isArray(debtPayments) ? debtPayments : [],
-      preferences: preferences ?? DEFAULT_PREFERENCES,
-      adState: adState ?? DEFAULT_AD_STATE,
-      exportRecords: Array.isArray(exportRecords) ? exportRecords : [],
-    };
-  } catch (err) {
-    console.warn('[DB] loadAllData failed, returning defaults:', err);
-    return { ...DEFAULT_APP_DATA };
+export async function mutateAppData(
+  mutator: (current: AppData) => AppData,
+  appVersion: string,
+  events: MutationEvent[] = [],
+): Promise<AppData> {
+  return serialize(async () => {
+    const storage = await getStorage();
+    const envelope = readEnvelope(storage);
+    const nextData = normalizeData(mutator(normalizeData(envelope.data)));
+    const nextSnapshotVersion = envelope.snapshotVersion + 1;
+    const retainedEvents = envelope.outbox.filter(item => item.kind === 'events');
+    const now = new Date().toISOString();
+    const outbox: SyncOutboxItem[] = [
+      ...retainedEvents,
+      ...(events.length
+        ? [{
+            id: generateId(),
+            kind: 'events' as const,
+            createdAt: now,
+            attempts: 0,
+            nextAttemptAt: now,
+            payload: {schemaVersion: 1, events: events.map(toAnalyticsEvent)},
+          }]
+        : []),
+      {
+        id: `snapshot-${nextSnapshotVersion}`,
+        kind: 'snapshot',
+        createdAt: now,
+        attempts: 0,
+        nextAttemptAt: now,
+        payload: snapshotPayload(nextData, nextSnapshotVersion, appVersion),
+      },
+    ];
+    writeEnvelope(storage, {
+      ...envelope,
+      data: nextData,
+      snapshotVersion: nextSnapshotVersion,
+      outbox,
+    });
+    return nextData;
+  });
+}
+
+export async function queueAnalyticsEvents(events: MutationEvent[]): Promise<void> {
+  if (events.length === 0) {
+    return;
   }
+  await serialize(async () => {
+    const storage = await getStorage();
+    const envelope = readEnvelope(storage);
+    const now = new Date().toISOString();
+    envelope.outbox.push({
+      id: generateId(),
+      kind: 'events',
+      createdAt: now,
+      attempts: 0,
+      nextAttemptAt: now,
+      payload: {schemaVersion: 1, events: events.map(toAnalyticsEvent)},
+    });
+    writeEnvelope(storage, envelope);
+  });
+}
+
+export async function ensureSnapshotQueued(appVersion: string): Promise<void> {
+  await serialize(async () => {
+    const storage = await getStorage();
+    const envelope = readEnvelope(storage);
+    if (envelope.outbox.some(item => item.kind === 'snapshot')) {
+      return;
+    }
+    const version = Math.max(1, envelope.snapshotVersion);
+    const now = new Date().toISOString();
+    envelope.outbox.push({
+      id: `snapshot-${version}`,
+      kind: 'snapshot',
+      createdAt: now,
+      attempts: 0,
+      nextAttemptAt: now,
+      payload: snapshotPayload(envelope.data, version, appVersion),
+    });
+    writeEnvelope(storage, envelope);
+  });
+}
+
+export async function getOutbox(): Promise<SyncOutboxItem[]> {
+  await operationQueue;
+  return [...readEnvelope(await getStorage()).outbox];
+}
+
+export async function completeOutboxItem(id: string): Promise<void> {
+  await serialize(async () => {
+    const storage = await getStorage();
+    const envelope = readEnvelope(storage);
+    envelope.outbox = envelope.outbox.filter(item => item.id !== id);
+    writeEnvelope(storage, envelope);
+  });
+}
+
+export async function deferOutboxItem(id: string, attempts: number): Promise<void> {
+  await serialize(async () => {
+    const storage = await getStorage();
+    const envelope = readEnvelope(storage);
+    const backoffMs = Math.min(3_600_000, 2 ** Math.min(attempts, 10) * 5_000);
+    envelope.outbox = envelope.outbox.map(item =>
+      item.id === id
+        ? {...item, attempts, nextAttemptAt: new Date(Date.now() + backoffMs).toISOString()}
+        : item,
+    );
+    writeEnvelope(storage, envelope);
+  });
 }
 
 export async function saveAllData(data: AppData): Promise<void> {
-  try {
-    await Promise.all([
-      writeJSON(STORAGE_KEYS.SAVINGS_GOALS, data.savingsGoals),
-      writeJSON(STORAGE_KEYS.CONTRIBUTIONS, data.contributions),
-      writeJSON(STORAGE_KEYS.DEBT_ACCOUNTS, data.debtAccounts),
-      writeJSON(STORAGE_KEYS.DEBT_PAYMENTS, data.debtPayments),
-      writeJSON(STORAGE_KEYS.PREFERENCES, data.preferences),
-      writeJSON(STORAGE_KEYS.AD_STATE, data.adState),
-      writeJSON(STORAGE_KEYS.EXPORT_RECORDS, data.exportRecords),
-    ]);
-  } catch (err) {
-    console.warn('[DB] saveAllData failed:', err);
-  }
+  await mutateAppData(() => data, '2.0.0');
 }
 
-// ─── Savings Goals ────────────────────────────────────────────────────────────
-
 export async function saveSavingsGoal(goal: SavingsGoal): Promise<void> {
-  try {
-    const goals = await readJSON<SavingsGoal[]>(STORAGE_KEYS.SAVINGS_GOALS, []);
-    const idx = goals.findIndex(g => g.id === goal.id);
-    if (idx >= 0) {
-      goals[idx] = goal;
-    } else {
-      goals.push(goal);
-    }
-    await writeJSON(STORAGE_KEYS.SAVINGS_GOALS, goals);
-  } catch (err) {
-    console.warn('[DB] saveSavingsGoal failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    savingsGoals: current.savingsGoals.some(item => item.id === goal.id)
+      ? current.savingsGoals.map(item => (item.id === goal.id ? goal : item))
+      : [...current.savingsGoals, goal],
+  }), '2.0.0');
 }
 
 export async function deleteSavingsGoal(id: string): Promise<void> {
-  try {
-    const goals = await readJSON<SavingsGoal[]>(STORAGE_KEYS.SAVINGS_GOALS, []);
-    const filtered = goals.filter(g => g.id !== id);
-    await writeJSON(STORAGE_KEYS.SAVINGS_GOALS, filtered);
-  } catch (err) {
-    console.warn('[DB] deleteSavingsGoal failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    savingsGoals: current.savingsGoals.filter(item => item.id !== id),
+    contributions: current.contributions.filter(item => item.goalId !== id),
+  }), '2.0.0');
 }
 
-// ─── Contributions ────────────────────────────────────────────────────────────
-
 export async function saveContribution(contribution: SavingsContribution): Promise<void> {
-  try {
-    const list = await readJSON<SavingsContribution[]>(STORAGE_KEYS.CONTRIBUTIONS, []);
-    const idx = list.findIndex(c => c.id === contribution.id);
-    if (idx >= 0) {
-      list[idx] = contribution;
-    } else {
-      list.push(contribution);
-    }
-    await writeJSON(STORAGE_KEYS.CONTRIBUTIONS, list);
-  } catch (err) {
-    console.warn('[DB] saveContribution failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    contributions: current.contributions.some(item => item.id === contribution.id)
+      ? current.contributions.map(item => (item.id === contribution.id ? contribution : item))
+      : [...current.contributions, contribution],
+  }), '2.0.0');
 }
 
 export async function deleteContribution(id: string): Promise<void> {
-  try {
-    const list = await readJSON<SavingsContribution[]>(STORAGE_KEYS.CONTRIBUTIONS, []);
-    const filtered = list.filter(c => c.id !== id);
-    await writeJSON(STORAGE_KEYS.CONTRIBUTIONS, filtered);
-  } catch (err) {
-    console.warn('[DB] deleteContribution failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    contributions: current.contributions.filter(item => item.id !== id),
+  }), '2.0.0');
 }
 
-// ─── Debt Accounts ────────────────────────────────────────────────────────────
-
 export async function saveDebtAccount(debt: DebtAccount): Promise<void> {
-  try {
-    const list = await readJSON<DebtAccount[]>(STORAGE_KEYS.DEBT_ACCOUNTS, []);
-    const idx = list.findIndex(d => d.id === debt.id);
-    if (idx >= 0) {
-      list[idx] = debt;
-    } else {
-      list.push(debt);
-    }
-    await writeJSON(STORAGE_KEYS.DEBT_ACCOUNTS, list);
-  } catch (err) {
-    console.warn('[DB] saveDebtAccount failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    debtAccounts: current.debtAccounts.some(item => item.id === debt.id)
+      ? current.debtAccounts.map(item => (item.id === debt.id ? debt : item))
+      : [...current.debtAccounts, debt],
+  }), '2.0.0');
 }
 
 export async function deleteDebtAccount(id: string): Promise<void> {
-  try {
-    const list = await readJSON<DebtAccount[]>(STORAGE_KEYS.DEBT_ACCOUNTS, []);
-    const filtered = list.filter(d => d.id !== id);
-    await writeJSON(STORAGE_KEYS.DEBT_ACCOUNTS, filtered);
-  } catch (err) {
-    console.warn('[DB] deleteDebtAccount failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    debtAccounts: current.debtAccounts.filter(item => item.id !== id),
+    debtPayments: current.debtPayments.filter(item => item.debtId !== id),
+  }), '2.0.0');
 }
 
-// ─── Debt Payments ────────────────────────────────────────────────────────────
-
 export async function saveDebtPayment(payment: DebtPayment): Promise<void> {
-  try {
-    const list = await readJSON<DebtPayment[]>(STORAGE_KEYS.DEBT_PAYMENTS, []);
-    const idx = list.findIndex(p => p.id === payment.id);
-    if (idx >= 0) {
-      list[idx] = payment;
-    } else {
-      list.push(payment);
-    }
-    await writeJSON(STORAGE_KEYS.DEBT_PAYMENTS, list);
-  } catch (err) {
-    console.warn('[DB] saveDebtPayment failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    debtPayments: current.debtPayments.some(item => item.id === payment.id)
+      ? current.debtPayments.map(item => (item.id === payment.id ? payment : item))
+      : [...current.debtPayments, payment],
+  }), '2.0.0');
 }
 
 export async function deleteDebtPayment(id: string): Promise<void> {
-  try {
-    const list = await readJSON<DebtPayment[]>(STORAGE_KEYS.DEBT_PAYMENTS, []);
-    const filtered = list.filter(p => p.id !== id);
-    await writeJSON(STORAGE_KEYS.DEBT_PAYMENTS, filtered);
-  } catch (err) {
-    console.warn('[DB] deleteDebtPayment failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    debtPayments: current.debtPayments.filter(item => item.id !== id),
+  }), '2.0.0');
 }
 
-// ─── Preferences ─────────────────────────────────────────────────────────────
-
-export async function savePreferences(prefs: UserPreferences): Promise<void> {
-  await writeJSON(STORAGE_KEYS.PREFERENCES, prefs);
+export async function savePreferences(preferences: UserPreferences): Promise<void> {
+  await mutateAppData(current => ({...current, preferences}), '2.0.0');
 }
 
-// ─── Ad State ────────────────────────────────────────────────────────────────
-
-export async function saveAdState(state: AdState): Promise<void> {
-  await writeJSON(STORAGE_KEYS.AD_STATE, state);
+export async function saveAdState(adState: AdState): Promise<void> {
+  await mutateAppData(current => ({...current, adState}), '2.0.0');
 }
-
-// ─── Export Records ──────────────────────────────────────────────────────────
 
 export async function saveExportRecord(record: ExportRecord): Promise<void> {
-  try {
-    const list = await readJSON<ExportRecord[]>(STORAGE_KEYS.EXPORT_RECORDS, []);
-    list.push(record);
-    // Keep only the last 50 export records
-    const trimmed = list.slice(-50);
-    await writeJSON(STORAGE_KEYS.EXPORT_RECORDS, trimmed);
-  } catch (err) {
-    console.warn('[DB] saveExportRecord failed:', err);
-  }
+  await mutateAppData(current => ({
+    ...current,
+    exportRecords: [...current.exportRecords, record].slice(-50),
+  }), '2.0.0');
 }
 
-// ─── Clear All ───────────────────────────────────────────────────────────────
-
 export async function clearAllData(): Promise<void> {
-  try {
-    await AsyncStorage.multiRemove(Object.values(STORAGE_KEYS));
-  } catch (err) {
-    console.warn('[DB] clearAllData failed:', err);
-  }
+  await serialize(async () => {
+    const storage = await getStorage();
+    writeEnvelope(storage, createEnvelope(cloneDefaults(), null));
+    await AsyncStorage.multiRemove(Object.values(LEGACY_KEYS));
+  });
 }

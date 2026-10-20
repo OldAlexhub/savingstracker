@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
   base: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.round,
     borderWidth: 0,
   },
   content: {
@@ -101,18 +101,20 @@ const styles = StyleSheet.create({
 
   // Sizes
   size_sm: {
-    paddingHorizontal: Spacing.sm,
+    minHeight: 36,
+    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
   },
   size_md: {
+    minHeight: 46,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm + 2,
   },
   size_lg: {
+    minHeight: 54,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.round,
   },
 
   // Text sizes

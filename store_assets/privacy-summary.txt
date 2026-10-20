@@ -1,26 +1,25 @@
 PRIVACY SUMMARY — Savings Tracker by Old Alex Hub
 
-YOUR FINANCIAL DATA:
-- Stored on your device only (local AsyncStorage)
-- Never sent to any server or cloud
-- No account or login required
-- Delete anytime: Settings > Clear All Data, or uninstall the app
+REQUIRED ANONYMOUS SYNC
+- The app creates a random installation ID; no account, email, or phone number is requested.
+- Savings goals, debts, balances, APRs, dates, contribution/payment histories, names, and notes are uploaded to tracking.server.oldalexhub.com.
+- Names and notes are sent unchanged. Users should not enter personal or account information in free text.
+- Manufacturer/model, Android and app versions, locale, timezone, screen class, capability flags, app activity, and diagnostics are collected.
+- The app does not collect contacts, precise GPS, IMEI, hardware serial number, or first-party access to the Advertising ID.
 
-ADVERTISING (Google AdMob):
-- This is a FREE app supported by ads
-- Google AdMob may collect: device identifiers, ad interaction events, approximate location from IP
-- We do not receive or store your personal data
-- To limit ad tracking: Device Settings > Privacy > Ads > Delete Advertising ID
+SECURITY AND RETENTION
+- Local data is kept in an encrypted MMKV envelope; keys and the anonymous token are protected by Android Keystore.
+- Data is encrypted in transit. Installation bearer tokens are hashed on the server.
+- Finance snapshots expire after deletion or 24 months of inactivity; raw analytics/device history after 13 months; admin audits after 24 months.
 
-NO:
-- No bank connections
-- No credit pulls
-- No money movement
-- No personal data collection by us
+DELETION
+- Settings > Delete local and server data purges the current installation’s server records and local data.
+- Uninstalling removes local data but cannot send a server deletion request, so use the in-app action first.
+- There is no cloud restore or cross-device recovery.
 
-DISCLAIMER:
-This app is an educational planning tool, not financial advice. All results are estimates based on your manual entries. Consult a financial professional for advice.
+ADVERTISING
+- Google AdMob and its partners may process identifiers, ad activity, diagnostics, and approximate network-derived location.
+- Google UMP presents legally required regional choices. Core tracking and baseline insights remain available with limited/non-personalized ads.
 
-Developer: Old Alex Hub
-Contact: [INSERT EMAIL]
-Full policy: Available in app and on Play Store listing
+Contact: Info@oldalexhub.com
+Full policy: included with the app and Play listing.

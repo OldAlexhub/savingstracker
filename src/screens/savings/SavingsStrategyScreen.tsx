@@ -1,9 +1,8 @@
 ﻿import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
+import { Colors, Spacing, Typography } from '../../theme';
 import { SAVINGS_STRATEGIES } from '../../data/strategies';
 import Card from '../../components/common/Card';
-import Disclaimer from '../../components/common/Disclaimer';
 import SafeScrollView from '../../components/layout/SafeScrollView';
 
 export default function SavingsStrategyScreen(): React.JSX.Element {
@@ -57,16 +56,12 @@ export default function SavingsStrategyScreen(): React.JSX.Element {
                     <Text style={styles.infoText}>{strategy.limitations}</Text>
                   </View>
 
-                  <View style={styles.disclaimerBox}>
-                    <Text style={styles.disclaimerText}>ℹ {strategy.disclaimer}</Text>
-                  </View>
                 </View>
               ) : null}
             </Card>
           );
         })}
 
-        <Disclaimer style={styles.footer} />
       </View>
     </SafeScrollView>
   );
@@ -87,13 +82,5 @@ const styles = StyleSheet.create({
   infoLabel: { ...Typography.label, color: Colors.textMuted, textTransform: 'uppercase', marginBottom: Spacing.xs },
   infoItem: { ...Typography.body, color: Colors.textSecondary, marginBottom: 2 },
   infoText: { ...Typography.body, color: Colors.textSecondary, lineHeight: 20 },
-  disclaimerBox: {
-    backgroundColor: Colors.infoLight,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.sm,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.info,
-  },
-  disclaimerText: { ...Typography.caption, color: Colors.textMuted, fontStyle: 'italic' },
   footer: { marginTop: Spacing.lg, marginBottom: Spacing.xl },
 });

@@ -1,8 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#2E7D32</color>
-    <color name="primaryDark">#1B5E20</color>
-    <color name="accent">#F57F17</color>
+    <color name="primary">#08A47F</color>
+    <color name="primaryDark">#071B1B</color>
+    <color name="accent">#08A47F</color>
     <color name="white">#FFFFFF</color>
-    <color name="background">#F5F7FA</color>
+    <color name="background">#F4F8F6</color>
+    <color name="launcher_background">#071B1B</color>
+    <color name="st_background">#F4F7F5</color>
+    <color name="st_surface">#FFFFFF</color>
+    <color name="st_surface_variant">#EEF3F0</color>
+    <color name="st_surface_elevated">#FAFCFB</color>
+    <color name="st_text">#101C24</color>
+    <color name="st_text_secondary">#40505B</color>
+    <color name="st_text_muted">#718078</color>
+    <color name="st_text_disabled">#9AA7A0</color>
+    <color name="st_success_light">#DDF8ED</color>
+    <color name="st_warning_light">#FFF4D6</color>
+    <color name="st_error_light">#FDE8EB</color>
+    <color name="st_info_light">#E9EDFF</color>
+    <color name="st_border">#DDE6E1</color>
+    <color name="st_border_light">#EDF2EF</color>
+    <color name="st_divider">#E8EFEB</color>
+    <color name="st_tab_inactive">#78867E</color>
+    <color name="st_primary_strong">#047857</color>
+    <color name="st_primary_fade">#DDF8ED</color>
+    <color name="st_secondary_fade">#E9EDFF</color>
+    <color name="st_accent_fade">#FFF4D6</color>
+    <color name="st_success">#047857</color>
+    <color name="st_warning">#B45309</color>
+    <color name="st_error">#BE3A4A</color>
+    <color name="st_info">#3559E0</color>
 </resources>

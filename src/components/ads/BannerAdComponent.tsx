@@ -25,10 +25,7 @@ const BannerAdComponent: React.FC<BannerAdComponentProps> = ({ style }) => {
       )}
       <BannerAd
         unitId={adUnitId}
-        size={BannerAdSize.BANNER}
-        requestOptions={{
-          requestNonPersonalizedAdsOnly: false,
-        }}
+        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         onAdLoaded={() => {
           setAdLoaded(true);
           setAdFailed(false);

@@ -1,79 +1,43 @@
-# Google Play Data Safety Form — Savings Tracker
+# Google Play Data Safety declaration worksheet
 
-Use these answers when filling in the Data Safety section on Google Play Console.
+Use this as an implementation-aligned worksheet and re-check Google’s current Play Console taxonomy before submission.
 
----
+## Collection and sharing overview
 
-## Does your app collect or share any of the required user data types?
+- App collects data: **Yes**
+- App shares data with service providers/advertising partners: **Yes**
+- Data encrypted in transit: **Yes**
+- User can request deletion: **Yes, inside Settings**
+- Collection required: Core anonymous finance/device/activity collection is required; regional AdMob personalization choices remain optional where required.
+- Account creation: **No**
 
-**YES** — The app uses Google AdMob which may collect advertising-related data.
+## Data types to declare
 
----
+| Play category | Examples in Savings Tracker | Collected | Shared | Purposes |
+|---|---|---:|---:|---|
+| Financial info | Goal/debt amounts, balances, APR, payment and contribution records | Yes | Service provider processing | App functionality, analytics, personalization of insights |
+| User-generated content / other info | Goal/debt names and notes, uploaded unchanged | Yes | Service provider processing | App functionality, analytics |
+| Device or other IDs | Random installation ID; AdMob may process advertising/device IDs | Yes | AdMob/service providers | Functionality, fraud prevention, advertising, analytics |
+| App activity | Opens, sessions, screens, feature use, insight/scenario use, ad events | Yes | AdMob for ad-related activity | Analytics, functionality, advertising |
+| App info and performance | Sync failures, API errors/latency, compatibility/capability data | Yes | Service providers | Diagnostics, security, analytics |
+| Approximate location | May be inferred from IP by AdMob | Possible | AdMob/partners | Advertising, analytics, fraud prevention |
 
-## Data Types Collected
+Do not declare precise location, contacts, email, phone, IMEI, serial number, health data, messages, photos, files, audio, or calendar data for the first-party service; the app does not request them.
 
-### Financial Info
-- **Collected:** No  
-  *(User enters financial data locally; it is never transmitted to any server)*
+## Retention and deletion disclosure
 
-### Personal Info
-- **Name, Email, Address, Phone:** Not collected
+- Active finance snapshots: until deletion or 24 months of inactivity.
+- Raw events/device snapshots: 13 months.
+- Administrative security/export audits: 24 months.
+- Non-reversible aggregates/model statistics may remain.
+- Settings deletion purges the installation’s raw server records and local encrypted records.
+- Uninstall alone removes local data but does not transmit a server-deletion request.
 
-### App Activity
-- **App interactions:** May be collected by Google AdMob (ad impressions, clicks)
-- **In-app search history:** Not collected
-- **Installed apps:** Not collected
+## Security answers
 
-### Device or Other IDs
-- **Device or other IDs (Advertising ID):** May be collected by Google AdMob
+- Local finance state: encrypted MMKV envelope, key protected by Android Keystore.
+- In transit: HTTPS.
+- Server bearer tokens: keyed hashes.
+- Owner portal: Secure/HttpOnly/SameSite cookie, CSRF validation, lockouts, expiry, audit trail.
 
-### Location
-- **Approximate location:** May be inferred by Google AdMob from IP address
-- **Precise location:** Not collected
-
----
-
-## Data Sharing
-
-| Data Type | Shared With | Purpose |
-|---|---|---|
-| Device/Advertising ID | Google AdMob and partners | Advertising |
-| App interactions (ad-related) | Google AdMob and partners | Advertising |
-| Approximate location | Google AdMob and partners | Advertising |
-
----
-
-## Is the data collected encrypted in transit?
-Yes (Google AdMob uses HTTPS)
-
----
-
-## Can users request data deletion?
-Yes — users can:
-1. Delete advertising ID via device Settings → Privacy → Ads → Delete advertising ID
-2. Uninstall the app to remove all local data
-3. Use in-app "Clear All Data" to remove all saved financial data
-
----
-
-## Data Safety Section Summary for Play Console
-
-**App collects data:** Yes (via Google AdMob SDK)
-**App shares data:** Yes (advertising data shared with Google AdMob and partners)
-**Data is encrypted in transit:** Yes
-**Users can request deletion:** Yes
-
-**Categories to declare:**
-- Device or other IDs → Collected, Shared → Advertising
-- App activity (ad interactions) → Collected, Shared → Advertising
-- Location (approximate) → May be collected by AdMob → Advertising
-
----
-
-## Notes
-
-The app itself does NOT collect, transmit, or process any user financial data outside the device. The financial data the user enters (goals, debts, amounts) is stored exclusively in Android's local AsyncStorage and is never sent to any external server.
-
-The only external data processing occurs through the Google AdMob SDK for serving and measuring advertisements, as documented in Google's own policies.
-
-Reference: [Google AdMob Data Safety FAQ](https://support.google.com/admob/answer/12176312)
+References: Google Play User Data and Data Safety policies, plus the Google Mobile Ads SDK disclosure guidance. Final answers must match the SDK versions and consent configuration shipped in the AAB.

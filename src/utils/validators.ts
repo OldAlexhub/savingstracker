@@ -294,6 +294,14 @@ export function validateDateString(dateStr: string): ValidationResult {
   if (isNaN(d.getTime())) {
     return fail('Please enter a valid date.');
   }
+  const [inputYear, inputMonth, inputDay] = trimmed.split('-').map(Number);
+  if (
+    d.getFullYear() !== inputYear ||
+    d.getMonth() + 1 !== inputMonth ||
+    d.getDate() !== inputDay
+  ) {
+    return fail('Please enter a valid date.');
+  }
   const year = d.getFullYear();
   if (year < 2000 || year > 2200) {
     return fail('Please enter a realistic date.');

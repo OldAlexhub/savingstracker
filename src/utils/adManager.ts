@@ -1,15 +1,13 @@
-﻿export class AdManager {
+import type {AdState, RemoteConfig} from '../types';
+
+type AdCaps = RemoteConfig['ads'];
+
+export class AdManager {
   private static instance: AdManager;
+  private lastInterstitialTime = 0;
+  private sessionInterstitialCount = 0;
 
-  private lastInterstitialTime: number = 0;
-  private sessionInterstitialCount: number = 0;
-
-  private readonly MIN_GAP_MS = 5 * 60 * 1000; // 5 minutes
-  private readonly MAX_PER_SESSION = 10;
-
-  private constructor() {
-    // Private constructor enforces singleton
-  }
+  private constructor() {}
 
   static getInstance(): AdManager {
     if (!AdManager.instance) {
@@ -18,37 +16,25 @@
     return AdManager.instance;
   }
 
-  /**
-   * Returns true if an interstitial ad can be shown right now.
-   * Conditions that block showing:
-   *   1. Session count has reached MAX_PER_SESSION
-   *   2. Not enough time has passed since the last interstitial
-   */
-  canShowInterstitial(): boolean {
-    if (this.sessionInterstitialCount >= this.MAX_PER_SESSION) {
+  canShowInterstitial(state: AdState, caps: AdCaps, at = Date.now()): boolean {
+    if (this.sessionInterstitialCount >= caps.maxPerSession) {
       return false;
     }
-    if (this.lastInterstitialTime === 0) {
-      // Never shown in this session — allowed
-      return true;
+
+    const today = new Date(at).toISOString().slice(0, 10);
+    if (state.dailyInterstitialDate === today && state.dailyInterstitialCount >= caps.maxPerDay) {
+      return false;
     }
-    const elapsed = Date.now() - this.lastInterstitialTime;
-    return elapsed >= this.MIN_GAP_MS;
+
+    const lastShown = Math.max(this.lastInterstitialTime, state.lastInterstitialShownAt ?? 0);
+    return lastShown === 0 || at - lastShown >= caps.minInterstitialGapMs;
   }
 
-  /**
-   * Call this immediately after an interstitial is successfully shown
-   * to record the time and increment the session count.
-   */
-  recordInterstitialShown(): void {
-    this.lastInterstitialTime = Date.now();
+  recordInterstitialShown(at = Date.now()): void {
+    this.lastInterstitialTime = at;
     this.sessionInterstitialCount += 1;
   }
 
-  /**
-   * Resets the session counters (e.g. on app foreground / resume).
-   * Does NOT reset lastInterstitialTime so the gap check still applies.
-   */
   resetSession(): void {
     this.sessionInterstitialCount = 0;
   }

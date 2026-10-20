@@ -1,10 +1,14 @@
-Version 1.0.0 — Initial Release
+Savings Tracker 2.0 — 2027 Makeover
 
-• Create and track savings goals with 10 built-in planning strategies
-• Track debts manually with 5 educational payoff strategy comparisons
-• Dashboard with total saved, total debt, and recent activity
-• Insights with weekly/monthly summaries and estimated completion dates
-• Export data as JSON, CSV, or text summary
-• All data stored locally — no account required
-• Free with ads (Google AdMob)
-• Full safe area support for all Android navigation styles
+• A premium new Home experience focused on momentum and the next useful action
+• Five clear destinations: Home, Goals, Debt, Insights, and Settings
+• Encrypted offline-first storage with reliable background synchronization
+• Explainable estimated goal forecasts, debt payoff outlooks, risk flags, and what-if scenarios
+• Searchable goal and debt lists plus editable contribution and payment histories
+• Native Android date controls, safer forms, and unsaved-change protection
+• Android gesture/three-button navigation spacing and root Back protection
+• Regional AdMob privacy choices and balanced, frequency-capped ads
+• In-app deletion for both local and server records
+• Required-update support for future Play Store releases
+
+No bank connection or account is required. Estimates are educational and based on the information entered.

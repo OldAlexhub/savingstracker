@@ -100,6 +100,9 @@ export interface UserPreferences {
   defaultSavingsStrategy: SavingsStrategyId;
   defaultDebtStrategy: DebtStrategyId;
   lastExportDate: string | null;
+  themeMode: 'system' | 'light' | 'dark';
+  dataCollectionAcceptedAt: string | null;
+  dataDisclosureVersion: string | null;
 }
 
 export interface ExportRecord {
@@ -113,6 +116,111 @@ export interface AdState {
   lastInterstitialShownAt: number | null;
   interstitialShowCount: number;
   appOpenCount: number;
+  dailyInterstitialCount: number;
+  dailyInterstitialDate: string | null;
+}
+
+export type AnalyticsEventName =
+  | 'app_opened'
+  | 'session_started'
+  | 'screen_viewed'
+  | 'onboarding_completed'
+  | 'goal_created'
+  | 'goal_updated'
+  | 'goal_completed'
+  | 'goal_archived'
+  | 'goal_deleted'
+  | 'contribution_logged'
+  | 'contribution_deleted'
+  | 'debt_created'
+  | 'debt_updated'
+  | 'debt_paid_off'
+  | 'debt_archived'
+  | 'debt_deleted'
+  | 'payment_logged'
+  | 'payment_deleted'
+  | 'insight_viewed'
+  | 'recommendation_accepted'
+  | 'reminder_enabled'
+  | 'ad_requested'
+  | 'ad_impression'
+  | 'ad_clicked'
+  | 'ad_failed'
+  | 'sync_failed'
+  | 'export_completed';
+
+export interface AnalyticsEvent {
+  eventId: string;
+  name: AnalyticsEventName;
+  clientTimestamp: string;
+  appVersion: string;
+  screen?: string;
+  properties?: Record<string, string | number | boolean | null>;
+}
+
+export interface SyncOutboxItem {
+  id: string;
+  kind: 'snapshot' | 'events';
+  createdAt: string;
+  attempts: number;
+  nextAttemptAt: string;
+  payload: Record<string, unknown>;
+}
+
+export interface GoalInsight {
+  goalId: string;
+  label: string;
+  progressPercent: number;
+  onTrackProbability: number;
+  estimatedCompletionDate: string | null;
+  estimatedRangeDays: number | null;
+  risk: 'low' | 'medium' | 'high';
+  explanation: string;
+}
+
+export interface DebtInsight {
+  debtId: string;
+  label: string;
+  estimatedMonths: number | null;
+  paymentConsistency: number;
+  risk: 'low' | 'medium' | 'high';
+  explanation: string;
+}
+
+export interface ServerInsights {
+  generatedAt: string;
+  estimated: true;
+  engine: string;
+  modelVersion: string;
+  goals: GoalInsight[];
+  debts: DebtInsight[];
+  nextActions: Array<{
+    id: string;
+    title: string;
+    reason: string;
+    priority: number;
+    recordId?: string;
+  }>;
+}
+
+export interface RemoteConfig {
+  configVersion: number;
+  android: {
+    latestVersionCode: number;
+    minSupportedVersionCode: number;
+    playStoreUrl: string;
+  };
+  ads: {
+    minInterstitialGapMs: number;
+    maxPerSession: number;
+    maxPerDay: number;
+    rewardedScenariosEnabled: boolean;
+  };
+  features: {
+    serverInsights: boolean;
+    whatIf: boolean;
+    mlShadowMode: boolean;
+  };
 }
 
 export interface ActivityItem {

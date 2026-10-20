@@ -9,12 +9,15 @@ import {
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApp } from '../../context/AppContext';
+import {useUnsavedChanges} from '../../hooks/useUnsavedChanges';
+import {useCompletionInterstitial} from '../../hooks/useCompletionInterstitial';
 import { Colors, Spacing, Typography, BorderRadius } from '../../theme';
-import { formatCurrency, formatDate, parseNumberSafe } from '../../utils/formatters';
+import { formatCurrency, parseNumberSafe } from '../../utils/formatters';
 import { calculateSavingsProgress } from '../../utils/calculations';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import AppTextInput from '../../components/common/TextInput';
+import DateField from '../../components/common/DateField';
 import KeyboardSafeScreen from '../../components/layout/KeyboardSafeScreen';
 import StickyActionBar from '../../components/layout/StickyActionBar';
 import type { RootStackParamList } from '../../types/index';
@@ -44,6 +47,7 @@ export default function LogContributionScreen(): React.JSX.Element {
   const route = useRoute<Route>();
   const preselectedGoalId = route.params?.goalId;
   const { data, addContribution } = useApp();
+  const {showIfEligible} = useCompletionInterstitial();
 
   const activeGoals = useMemo(
     () => data.savingsGoals.filter(g => g.status === 'active'),
@@ -56,7 +60,7 @@ export default function LogContributionScreen(): React.JSX.Element {
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
-  const [showGoalPicker, setShowGoalPicker] = useState(false);
+  useUnsavedChanges(!saving && Boolean(amount || notes || date !== todayISO()));
 
   const currency = data.preferences.currency;
   const selectedGoal = activeGoals.find(g => g.id === selectedGoalId);
@@ -85,8 +89,11 @@ export default function LogContributionScreen(): React.JSX.Element {
         date: date.trim(),
         notes: notes.trim(),
       });
-      Alert.alert('Contribution Logged!', `${formatCurrency(parsedAmount, currency)} added to ${selectedGoal?.name ?? 'goal'}.`);
-      navigation.goBack();
+      Alert.alert(
+        'Contribution Logged!',
+        `${formatCurrency(parsedAmount, currency)} added to ${selectedGoal?.name ?? 'goal'}.`,
+        [{text: 'Done', onPress: () => { showIfEligible(); navigation.goBack(); }}],
+      );
     } catch {
       Alert.alert('Error', 'Failed to log contribution. Please try again.');
     } finally {
@@ -168,14 +175,13 @@ export default function LogContributionScreen(): React.JSX.Element {
 
         {/* Date */}
         <View style={styles.section}>
-          <AppTextInput
+          <DateField
             label="Date"
             value={date}
-            onChangeText={v => { setDate(v); setErrors(p => ({ ...p, date: undefined })); }}
-            placeholder="YYYY-MM-DD"
-            keyboardType="numeric"
+            onChange={v => { setDate(v); setErrors(p => ({ ...p, date: undefined })); }}
             error={errors.date}
-            helperText="Format: YYYY-MM-DD"
+            helperText="Contribution date"
+            maximumDate={new Date()}
           />
         </View>
 
@@ -190,6 +196,7 @@ export default function LogContributionScreen(): React.JSX.Element {
             numberOfLines={3}
             maxLength={500}
             error={errors.notes}
+            helperText="Uploaded unchanged. Do not include personal or account information."
           />
         </View>
       </View>
